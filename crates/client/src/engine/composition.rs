@@ -25,6 +25,8 @@ use windows::Win32::{
 
 use anyhow::{Context, Result};
 
+// 変換中の状態
+// TODO: 名前がぎりわからない
 #[derive(Default, Clone, PartialEq, Debug)]
 pub enum CompositionState {
     #[default]
@@ -36,20 +38,27 @@ pub enum CompositionState {
 
 #[derive(Default, Clone, Debug)]
 pub struct Composition {
+    // TODO: preview, suffix, raw_input, raw_hiraganaは変換サーバーに持たせよう
     pub preview: String, // text to be previewed
     pub suffix: String,  // text to be appended after preview
     pub raw_input: String,
     pub raw_hiragana: String,
 
+    // TODO: これはなに
     pub corresponding_count: i32, // corresponding count of the preview
 
+    // 選択している候補のindex
+    // TODO: candidate_indexのほうがよくないか
+    // TODO: i32じゃなくusizeあたりのほうがいいのでは
     pub selection_index: i32,
+    // 候補のリスト、これはText Serviceで持つべきものなのか？
     pub candidates: Candidates,
 
     pub state: CompositionState,
     pub tip_composition: Option<ITfComposition>,
 }
 
+// TODO: tsfに切り出し
 impl ITfCompositionSink_Impl for TextServiceFactory_Impl {
     #[macros::anyhow]
     fn OnCompositionTerminated(
@@ -67,6 +76,7 @@ impl ITfCompositionSink_Impl for TextServiceFactory_Impl {
     }
 }
 
+// TODO: テストの追加
 impl TextServiceFactory {
     #[tracing::instrument]
     pub fn process_key(
@@ -321,6 +331,7 @@ impl TextServiceFactory {
         Ok(true)
     }
 
+    // TODO: 汚いコード。まずはサーバーへの切り出しを行ってそのあとに修正などを行っていく
     #[tracing::instrument]
     pub fn handle_action(
         &self,

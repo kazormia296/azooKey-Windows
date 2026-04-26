@@ -13,8 +13,8 @@ use crate::engine::state::IMEState;
 use super::{factory::TextServiceFactory_Impl, text_service::TextService};
 
 impl ITfTextLayoutSink_Impl for TextServiceFactory_Impl {
-    // This function is called when the text display position changes when the IME is enabled.
-    // However, this function **will not be called** in Microsoft Store applications such as Notepad, so be careful.
+    // テキストの位置が変化したこっと期の動作を指定するイベントリスナー的なもの
+    // ただし、Windows Storeのアプリ（メモ帳とか）では呼ばれないっぽいので注意が必要
     #[macros::anyhow]
     fn OnLayoutChange(
         &self,

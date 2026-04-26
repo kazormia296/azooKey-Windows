@@ -19,6 +19,9 @@ pub struct IPCService {
     runtime: Arc<tokio::runtime::Runtime>,
 }
 
+// ロジックの切り出しをおこなっておくべき
+// ポートの利用について少し考える
+
 #[derive(Debug, Clone, Default)]
 pub struct Candidates {
     pub texts: Vec<String>,
@@ -119,6 +122,7 @@ impl IPCService {
         Ok(candidates)
     }
 
+    // 一文字消去する
     #[tracing::instrument]
     pub fn remove_text(&mut self) -> anyhow::Result<Candidates> {
         let request = tonic::Request::new(shared::proto::RemoveTextRequest {});
@@ -154,6 +158,7 @@ impl IPCService {
         Ok(candidates)
     }
 
+    // TODO: clear_compositionに改名
     #[tracing::instrument]
     pub fn clear_text(&mut self) -> anyhow::Result<()> {
         let request = tonic::Request::new(shared::proto::ClearTextRequest {});
@@ -165,6 +170,7 @@ impl IPCService {
         Ok(())
     }
 
+    // TODO: shrink_compositionに改名する
     #[tracing::instrument]
     pub fn shrink_text(&mut self, offset: i32) -> anyhow::Result<Candidates> {
         let request = tonic::Request::new(shared::proto::ShrinkTextRequest { offset });
@@ -200,6 +206,8 @@ impl IPCService {
         Ok(candidates)
     }
 
+    // 前方文脈を変換サーバーに送信する
+    // TODO: set_contextではなくset_preceding_contextとかのが分かりやすい
     pub fn set_context(&mut self, context: String) -> anyhow::Result<()> {
         let request = tonic::Request::new(shared::proto::SetContextRequest { context });
         let _response = self

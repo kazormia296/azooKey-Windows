@@ -1,3 +1,10 @@
+// TODO: UserActionという名前よりもっといい名前がありそう
+// キーボードイベントをEnumに変換する
+// 
+// 参考
+// - https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
+// - https://bsakatu.net/doc/virtual-key-of-windows/
+
 use crate::extension::VKeyExt;
 use anyhow::{Context, Result};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyboardState, ToUnicode, VK_SHIFT};
@@ -13,6 +20,7 @@ pub enum UserAction {
     Unknown,
     Navigation(Navigation),
     Function(Function),
+    // TODO: Numberはu8でよくないか
     Number(i8),
     ToggleInputMode,
 }

@@ -1,9 +1,10 @@
 // https://www.unicode.org/charts/nameslist/n_FF00.html
 // extracted with scripts/extract_fullwidth.py
+// SetTextWithType（かな、カタカナ、半角カタカナで確定）の実装
+// TODO: text_utilに移動する or 変換サーバーに任せる
 
 use std::{collections::HashMap, sync::LazyLock};
 
-// in azookey, fullwidth alphabet will not be processed
 static HALF_FULL_AZOOKEY: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     HashMap::from([
         ("!", "！"),

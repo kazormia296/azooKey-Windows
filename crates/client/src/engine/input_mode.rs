@@ -15,6 +15,7 @@ pub enum InputMode {
 }
 
 impl TextServiceFactory {
+    // TSF部分はlanguage_bar.rsに実装を移動したい
     pub fn update_lang_bar(&self) -> Result<()> {
         // change the icon of the language bar item
         let text_service = self.borrow()?;

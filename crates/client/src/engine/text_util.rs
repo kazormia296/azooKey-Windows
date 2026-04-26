@@ -1,4 +1,7 @@
 // thanks to https://github.com/ensan-hcl/AzooKeyKanaKanjiConverter/blob/develop/Sources/KanaKanjiConverterModule/Roman2Kana.swift
+// ひらがな to カタカナ/半角カタカナの実装を行う
+// TODO: これを変換サーバーに任せるかText Service側でやるのか検討
+
 use std::collections::HashMap;
 use std::sync::LazyLock;
 

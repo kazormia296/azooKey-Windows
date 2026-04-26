@@ -1,6 +1,13 @@
 // reference to the original code:
 // https://github.com/google/mozc/blob/master/src/win32/tip/tip_surrounding_text.cc
 
+/// 周辺テキストの取得
+/// 
+/// (contextに階層構造なんてあったっけ...?)
+/// 
+/// 1. parent contextの取得
+/// 2. 
+
 use std::{mem::ManuallyDrop, rc::Rc};
 
 use anyhow::Result;

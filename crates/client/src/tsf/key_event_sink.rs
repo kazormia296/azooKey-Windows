@@ -1,3 +1,17 @@
+/// キーボードのイベントを取得するイベントリスナー
+/// 
+/// OnTestKeyDownとOnKeyDown, OnTestKeyUpとOnKeyUpの4種類の関数が存在する。
+/// 
+/// OnTestKeyDownでTRUEを返した場合にのみ、OnKeyDownが呼ばれて、TextServiceがキーボードイベントを使ってあれこれできるようになる。
+/// このrepoでは、
+/// 1. ショートカットキーが押されているとき
+/// 2. 漢字変換モードではないとき（つまり英語直接入力モードのとき）
+/// はOnTestKeyDownを呼ぶようにしている。
+/// 
+/// OnTestKeyUpとOnKeyUpも同様だが、KeyUpをトリガーとしたい操作が今のところ存在しないため、常にFALSEを返すようにしている。
+/// 
+/// OnPreservedKeyやOnSetFocusは使われる条件がよくわかっていない。 
+
 use windows::{
     core::GUID,
     Win32::{

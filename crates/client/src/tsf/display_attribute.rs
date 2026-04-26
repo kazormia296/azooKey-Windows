@@ -1,3 +1,26 @@
+/// 変換中のテキストに対する表示属性（下線など）の制御を行う
+/// 
+/// Text Service側が利用する表示属性を宣言し、それをTSF Applicationが受け取って表示するようになっている
+/// 
+/// 表示属性を宣言するためにTF_DISPLAYATTRIBUTE構造体を用いる。
+/// このrepositoryでは変換中の文字に対する下線のみを用いることにしており、globals.rsにその内容があるので要参照
+/// 
+/// ITfDisplayAttributeProvider -> IEnumTfDisplayAttributeInfo -> ITfDisplayAttributeInfoのように依存関係が存在し、コードもその並びに沿って書いてある。
+/// 
+/// ざっくりまとめると、
+/// ITfDisplayAttributeInfoは単一の表示属性を扱い、
+/// IEnumTfDisplayAttributeInfoは複数の表示属性をまとめて扱い、
+/// ITfDisplayAttributeProviderはIEnumTfDisplayAttributeInfoをTSF Application側に露出する
+/// ※今のところこのrepoでは単一の表示属性（下線）しか扱っていないが、例えばMicrosoft IMEは太い下線と細い下線を出し分けているように、複数の表示属性をまとめて管理する必要はある。
+/// 
+/// ITfDisplayAttributeInfoは単一の表示属性を扱う。GetAttributeInfoやGetGUID, GetDescriptionに加えてSetAttributeInfoやResetが存在する。
+/// SetAttributeやResetについては、おそらくTSF Application側からも表示属性を編集することがあるのだろうが、そんなことがあるのかよくわからない
+/// 
+/// IEnumTfDisplayAttributeInfoは複数のITfDisplayAttributeInfoをまとめて扱う。Next関数やClone関数などイテレーターで実装するような関数を実装する。
+/// このrepositoryでは単一の表示属性しか扱わないが、一応機能も含めて実装している。
+/// 
+/// ITfDisplayAttributeProviderはIEnumTfDisplayAttributeInfoの内容をTSF Applicationに露出する。Enumそのものを渡す関数と、GUIDのIndexを渡す関数がある。
+
 use std::{
     cell::Cell,
     sync::atomic::{AtomicUsize, Ordering::Relaxed},
@@ -16,7 +39,6 @@ use crate::globals::{DISPLAY_ATTRIBUTE, GUID_DISPLAY_ATTRIBUTE};
 
 use super::factory::TextServiceFactory_Impl;
 
-// class for display attribute (color, bold, underline, etc.)
 impl ITfDisplayAttributeProvider_Impl for TextServiceFactory_Impl {
     #[macros::anyhow]
     fn EnumDisplayAttributeInfo(&self) -> windows::core::Result<IEnumTfDisplayAttributeInfo> {
@@ -40,6 +62,7 @@ impl ITfDisplayAttributeProvider_Impl for TextServiceFactory_Impl {
     }
 }
 
+// 
 #[derive(Clone)]
 #[implement(ITfDisplayAttributeInfo)]
 pub struct DisplayAttributeInfo {
@@ -117,6 +140,7 @@ impl IEnumTfDisplayAttributeInfo_Impl for EnumDisplayAttributeInfo_Impl {
     #[macros::anyhow]
     fn Clone(&self) -> Result<IEnumTfDisplayAttributeInfo> {
         let clone = EnumDisplayAttributeInfo::new();
+        // これは何？Relaxedってなんだっけ、AtomicUsizeのコードとか覚えてない
         clone.index.store(self.index.load(Relaxed), Relaxed);
         Ok(clone.into())
     }

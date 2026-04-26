@@ -1,3 +1,4 @@
+// TOOD: utilsに作って集約したほうがよさそう
 use windows::{
     core::w,
     Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, REG_VALUE_TYPE, RRF_RT_REG_DWORD},
@@ -5,6 +6,7 @@ use windows::{
 
 use anyhow::Result;
 
+// TODO: Light/DarkのEnumを返却するように修正
 pub fn get_theme() -> Result<bool> {
     // return true if the system uses light theme
     let mut value_type = REG_VALUE_TYPE::default();

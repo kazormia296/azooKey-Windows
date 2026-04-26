@@ -22,6 +22,10 @@ use crate::globals::DllModule;
 
 use super::text_service::TextService;
 
+// TODO: 構造体の名前、フィールドの名前を変更
+// 実質的にはFactoryというよりText Serviceのクラスを全部実装してしまっているので、TextServiceと名前を変えてしまっていいのかな
+// 内部の構造体をTextServiceInner、innerとして書き換える
+// TODO: innerパターンを利用している理由を書いておく
 #[derive(Default)]
 #[implement(
     IClassFactory,

@@ -1,3 +1,6 @@
+// 言語バーを管理する
+// 言語バーとは、右下に表示されるあとかAとかそういうやつ
+
 use windows::{
     core::{IUnknown, Interface as _, BSTR, GUID, PCWSTR},
     Win32::{
@@ -26,6 +29,7 @@ use anyhow::{Context as _, Result};
 
 use super::factory::TextServiceFactory_Impl;
 
+// TODO: 変数名の変更 LANGUAGE_BAR_INFOとかにしたほうがいい
 const INFO: TF_LANGBARITEMINFO = TF_LANGBARITEMINFO {
     clsidService: GUID_TEXT_SERVICE,
     guidItem: GUID_LBI_INPUTMODE,
@@ -37,6 +41,7 @@ const INFO: TF_LANGBARITEMINFO = TF_LANGBARITEMINFO {
 // you need to implement these three interfaces to create a language bar item
 // if not, you will get E_FAIL error in ITfLangBarItemMgr::AddItem
 
+// 言語バーのアイテム...?
 impl ITfLangBarItem_Impl for TextServiceFactory_Impl {
     #[macros::anyhow]
     fn GetInfo(&self, p_info: *mut TF_LANGBARITEMINFO) -> Result<()> {
@@ -63,6 +68,7 @@ impl ITfLangBarItem_Impl for TextServiceFactory_Impl {
     }
 }
 
+// 
 impl ITfLangBarItemButton_Impl for TextServiceFactory_Impl {
     #[macros::anyhow]
     fn OnClick(&self, _click: TfLBIClick, _pt: &POINT, _prcarea: *const RECT) -> Result<()> {
@@ -136,6 +142,7 @@ impl ITfLangBarItemButton_Impl for TextServiceFactory_Impl {
     }
 }
 
+// TODO: ITfSourceはなんでこんなところにあるのか
 impl ITfSource_Impl for TextServiceFactory_Impl {
     #[macros::anyhow]
     fn AdviseSink(&self, riid: *const GUID, punk: Option<&IUnknown>) -> Result<u32> {

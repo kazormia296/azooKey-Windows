@@ -6,9 +6,13 @@ use windows::{
 
 use anyhow::Result;
 
-// TODO: Light/DarkのEnumを返却するように修正
-pub fn get_theme() -> Result<bool> {
-    // return true if the system uses light theme
+// Windowsシステムのテーマ
+pub enum SystemTheme {
+    Light,
+    Dark
+}
+
+pub fn get_system_theme() -> Result<SystemTheme> {
     let mut value_type = REG_VALUE_TYPE::default();
     let mut data = [0u8; 4];
     let mut data_size = data.len() as u32;
@@ -24,6 +28,13 @@ pub fn get_theme() -> Result<bool> {
             Some(&mut data_size),
         )
     };
+    
+    let theme = match data[0] {
+        0 => SystemTheme::Dark,
+        1 => SystemTheme::Light,
+        // 0か1以外の値はありえないが、一応Lightを使うようにしておく
+        _ => SystemTheme::Light
+    };
 
-    Ok(data[0] != 0)
+    Ok(theme)
 }

@@ -20,17 +20,17 @@ use windows::{
 use crate::{
     engine::{
         client_action::ClientAction, composition::CompositionState, input_mode::InputMode,
-        state::IMEState, theme::get_theme,
+        state::IMEState, theme::{SystemTheme, get_system_theme},
     },
-    globals::{DllModule, GUID_TEXT_SERVICE, TEXTSERVICE_LANGBARITEMSINK_COOKIE},
+    globals::{DllModule, GUID_TEXT_SERVICE, IDI_MODE_KANA_BLACK, IDI_MODE_KANA_WHITE, IDI_MODE_LATN_BLACK, IDI_MODE_LATN_WHITE, TEXTSERVICE_LANGBARITEMSINK_COOKIE},
 };
 
 use anyhow::{Context as _, Result};
 
 use super::factory::TextServiceFactory_Impl;
 
-// TODO: 変数名の変更 LANGUAGE_BAR_INFOとかにしたほうがいい
-const INFO: TF_LANGBARITEMINFO = TF_LANGBARITEMINFO {
+// https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/ns-ctfutb-tf_langbariteminfo
+const LANGUAGE_BAR_INFO: TF_LANGBARITEMINFO = TF_LANGBARITEMINFO {
     clsidService: GUID_TEXT_SERVICE,
     guidItem: GUID_LBI_INPUTMODE,
     dwStyle: TF_LBI_STYLE_BTN_BUTTON,
@@ -46,7 +46,7 @@ impl ITfLangBarItem_Impl for TextServiceFactory_Impl {
     #[macros::anyhow]
     fn GetInfo(&self, p_info: *mut TF_LANGBARITEMINFO) -> Result<()> {
         unsafe {
-            *p_info = INFO;
+            *p_info = LANGUAGE_BAR_INFO;
         }
         Ok(())
     }
@@ -68,7 +68,6 @@ impl ITfLangBarItem_Impl for TextServiceFactory_Impl {
     }
 }
 
-// 
 impl ITfLangBarItemButton_Impl for TextServiceFactory_Impl {
     #[macros::anyhow]
     fn OnClick(&self, _click: TfLBIClick, _pt: &POINT, _prcarea: *const RECT) -> Result<()> {
@@ -103,21 +102,19 @@ impl ITfLangBarItemButton_Impl for TextServiceFactory_Impl {
         let dll_module = DllModule::get()?;
         let state = &IMEState::get()?;
         let input_mode = &state.input_mode;
-        let theme = get_theme()?;
+        let theme = get_system_theme()?;
 
         let icon_id = match input_mode {
             InputMode::Kana => {
-                if theme {
-                    102
-                } else {
-                    104
+                match theme {
+                    SystemTheme::Light => IDI_MODE_KANA_BLACK,
+                    SystemTheme::Dark => IDI_MODE_KANA_WHITE
                 }
             }
             InputMode::Latin => {
-                if theme {
-                    103
-                } else {
-                    105
+                match theme {
+                    SystemTheme::Light => IDI_MODE_LATN_BLACK,
+                    SystemTheme::Dark => IDI_MODE_LATN_WHITE
                 }
             }
         };

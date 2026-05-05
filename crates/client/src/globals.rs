@@ -31,6 +31,12 @@ pub const GUID_PROFILE: GUID = GUID::from_u128(0xffdefe7a_2fc2_11ef_b16b_94e70b2
 // DisplayAttribute用のGUID
 pub const GUID_DISPLAY_ATTRIBUTE: GUID = GUID::from_u128(0xffdefe7b_2fc2_11ef_b16b_94e70b2c378c);
 
+// DLLに埋め込んでいるアイコンの情報 (res/res.hを参照)
+pub const IDI_MODE_KANA_BLACK: u16 = 102;
+pub const IDI_MODE_LATN_BLACK: u16 = 103;
+pub const IDI_MODE_KANA_WHITE: u16 = 104;
+pub const IDI_MODE_LATN_WHITE: u16 = 105;
+
 pub const DISPLAY_ATTRIBUTE: TF_DISPLAYATTRIBUTE = TF_DISPLAYATTRIBUTE {
     crText: TF_DA_COLOR {
         r#type: TF_CT_NONE,

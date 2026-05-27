@@ -1,6 +1,6 @@
 // TODO: UserActionという名前よりもっといい名前がありそう
 // キーボードイベントをEnumに変換する
-// 
+//
 // 参考
 // - https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
 // - https://bsakatu.net/doc/virtual-key-of-windows/

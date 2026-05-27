@@ -9,7 +9,7 @@ use anyhow::Result;
 // Windowsシステムのテーマ
 pub enum SystemTheme {
     Light,
-    Dark
+    Dark,
 }
 
 pub fn get_system_theme() -> Result<SystemTheme> {
@@ -28,12 +28,12 @@ pub fn get_system_theme() -> Result<SystemTheme> {
             Some(&mut data_size),
         )
     };
-    
+
     let theme = match data[0] {
         0 => SystemTheme::Dark,
         1 => SystemTheme::Light,
         // 0か1以外の値はありえないが、一応Lightを使うようにしておく
-        _ => SystemTheme::Light
+        _ => SystemTheme::Light,
     };
 
     Ok(theme)

@@ -19,10 +19,16 @@ use windows::{
 
 use crate::{
     engine::{
-        client_action::ClientAction, composition::CompositionState, input_mode::InputMode,
-        state::IMEState, theme::{SystemTheme, get_system_theme},
+        client_action::ClientAction,
+        composition::CompositionState,
+        input_mode::InputMode,
+        state::IMEState,
+        theme::{get_system_theme, SystemTheme},
     },
-    globals::{DllModule, GUID_TEXT_SERVICE, IDI_MODE_KANA_BLACK, IDI_MODE_KANA_WHITE, IDI_MODE_LATN_BLACK, IDI_MODE_LATN_WHITE, TEXTSERVICE_LANGBARITEMSINK_COOKIE},
+    globals::{
+        DllModule, GUID_TEXT_SERVICE, IDI_MODE_KANA_BLACK, IDI_MODE_KANA_WHITE,
+        IDI_MODE_LATN_BLACK, IDI_MODE_LATN_WHITE, TEXTSERVICE_LANGBARITEMSINK_COOKIE,
+    },
 };
 
 use anyhow::{Context as _, Result};
@@ -105,18 +111,14 @@ impl ITfLangBarItemButton_Impl for TextServiceFactory_Impl {
         let theme = get_system_theme()?;
 
         let icon_id = match input_mode {
-            InputMode::Kana => {
-                match theme {
-                    SystemTheme::Light => IDI_MODE_KANA_BLACK,
-                    SystemTheme::Dark => IDI_MODE_KANA_WHITE
-                }
-            }
-            InputMode::Latin => {
-                match theme {
-                    SystemTheme::Light => IDI_MODE_LATN_BLACK,
-                    SystemTheme::Dark => IDI_MODE_LATN_WHITE
-                }
-            }
+            InputMode::Kana => match theme {
+                SystemTheme::Light => IDI_MODE_KANA_BLACK,
+                SystemTheme::Dark => IDI_MODE_KANA_WHITE,
+            },
+            InputMode::Latin => match theme {
+                SystemTheme::Light => IDI_MODE_LATN_BLACK,
+                SystemTheme::Dark => IDI_MODE_LATN_WHITE,
+            },
         };
 
         unsafe {

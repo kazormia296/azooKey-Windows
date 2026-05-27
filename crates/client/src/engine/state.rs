@@ -1,5 +1,4 @@
 // TODO: InputModeはサーバー側で持つようにしてみないか...?
-// 
 use std::{
     collections::HashMap,
     sync::{LazyLock, Mutex, MutexGuard},
@@ -13,7 +12,7 @@ use super::{input_mode::InputMode, ipc_service::IPCService};
 pub struct IMEState {
     pub ipc_service: Option<IPCService>,
     pub input_mode: InputMode,
-    pub cookies: HashMap<GUID, u32>, 
+    pub cookies: HashMap<GUID, u32>,
     // ThreadMgrEventSinkとかTextLayoutSinkの実装に使う
     pub context: Option<ITfContext>,
     // 以前のITfContextを保存して、2重にadvise_text_layout_sinkしないようにしているみたい。必要性を検証する必要がありそう。

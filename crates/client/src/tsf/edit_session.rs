@@ -1,6 +1,6 @@
 // 変換範囲に対する操作を行う場合はEditSessionを介して行う
-// 
-// 
+//
+//
 use macros::anyhow;
 use windows::{
     core::{implement, AsImpl, VARIANT},

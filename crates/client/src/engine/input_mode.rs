@@ -1,4 +1,4 @@
-use crate::tsf::factory::TextServiceFactory;
+use crate::tsf::text_service::TextService;
 
 use windows::{
     core::Interface,
@@ -14,7 +14,7 @@ pub enum InputMode {
     Kana,
 }
 
-impl TextServiceFactory {
+impl TextService {
     // TSF部分はlanguage_bar.rsに実装を移動したい
     pub fn update_lang_bar(&self) -> Result<()> {
         // change the icon of the language bar item

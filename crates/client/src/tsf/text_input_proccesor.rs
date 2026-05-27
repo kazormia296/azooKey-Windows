@@ -5,7 +5,7 @@ use crate::{
     globals::{DllModule, GUID_DISPLAY_ATTRIBUTE},
 };
 
-use super::factory::TextServiceFactory_Impl;
+use super::text_service::TextService_Impl;
 use windows::{
     core::Interface as _,
     Win32::{
@@ -21,7 +21,7 @@ use windows::{
 
 use anyhow::{Context, Result};
 
-impl ITfTextInputProcessor_Impl for TextServiceFactory_Impl {
+impl ITfTextInputProcessor_Impl for TextService_Impl {
     #[macros::anyhow]
     #[tracing::instrument]
     fn Activate(&self, ptim: Option<&ITfThreadMgr>, tid: u32) -> Result<()> {
@@ -164,7 +164,7 @@ impl ITfTextInputProcessor_Impl for TextServiceFactory_Impl {
     }
 }
 
-impl ITfTextInputProcessorEx_Impl for TextServiceFactory_Impl {
+impl ITfTextInputProcessorEx_Impl for TextService_Impl {
     #[macros::anyhow]
     fn ActivateEx(&self, ptim: Option<&ITfThreadMgr>, tid: u32, _dwflags: u32) -> Result<()> {
         // called when the text service is activated

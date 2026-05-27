@@ -33,7 +33,7 @@ use crate::{
 
 use anyhow::{Context as _, Result};
 
-use super::factory::TextServiceFactory_Impl;
+use super::text_service::TextService_Impl;
 
 // https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/ns-ctfutb-tf_langbariteminfo
 const LANGUAGE_BAR_INFO: TF_LANGBARITEMINFO = TF_LANGBARITEMINFO {
@@ -48,7 +48,7 @@ const LANGUAGE_BAR_INFO: TF_LANGBARITEMINFO = TF_LANGBARITEMINFO {
 // if not, you will get E_FAIL error in ITfLangBarItemMgr::AddItem
 
 // 言語バーのアイテム...?
-impl ITfLangBarItem_Impl for TextServiceFactory_Impl {
+impl ITfLangBarItem_Impl for TextService_Impl {
     #[macros::anyhow]
     fn GetInfo(&self, p_info: *mut TF_LANGBARITEMINFO) -> Result<()> {
         unsafe {
@@ -74,7 +74,7 @@ impl ITfLangBarItem_Impl for TextServiceFactory_Impl {
     }
 }
 
-impl ITfLangBarItemButton_Impl for TextServiceFactory_Impl {
+impl ITfLangBarItemButton_Impl for TextService_Impl {
     #[macros::anyhow]
     fn OnClick(&self, _click: TfLBIClick, _pt: &POINT, _prcarea: *const RECT) -> Result<()> {
         let mode = {
@@ -142,7 +142,7 @@ impl ITfLangBarItemButton_Impl for TextServiceFactory_Impl {
 }
 
 // TODO: ITfSourceはなんでこんなところにあるのか
-impl ITfSource_Impl for TextServiceFactory_Impl {
+impl ITfSource_Impl for TextService_Impl {
     #[macros::anyhow]
     fn AdviseSink(&self, riid: *const GUID, punk: Option<&IUnknown>) -> Result<u32> {
         let riid = unsafe { *riid };

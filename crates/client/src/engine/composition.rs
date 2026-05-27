@@ -3,7 +3,7 @@ use std::cmp::{max, min};
 use crate::{
     engine::user_action::UserAction,
     extension::VKeyExt as _,
-    tsf::factory::{TextServiceFactory, TextServiceFactory_Impl},
+    tsf::text_service::{TextService, TextService_Impl},
 };
 
 use super::{
@@ -59,7 +59,7 @@ pub struct Composition {
 }
 
 // TODO: tsfに切り出し
-impl ITfCompositionSink_Impl for TextServiceFactory_Impl {
+impl ITfCompositionSink_Impl for TextService_Impl {
     #[macros::anyhow]
     fn OnCompositionTerminated(
         &self,
@@ -77,7 +77,7 @@ impl ITfCompositionSink_Impl for TextServiceFactory_Impl {
 }
 
 // TODO: テストの追加
-impl TextServiceFactory {
+impl TextService {
     #[tracing::instrument]
     pub fn process_key(
         &self,

@@ -1,105 +1,122 @@
 use std::{
     cell::{Ref, RefCell, RefMut},
-    collections::HashMap,
-    time::{Duration, Instant},
+    ffi::c_void,
 };
 
 use windows::{
-    core::{Interface, GUID},
-    Win32::UI::TextServices::{ITfContext, ITfTextInputProcessor, ITfThreadMgr},
+    core::{implement, AsImpl, IUnknown, Interface, GUID},
+    Win32::{
+        Foundation::{BOOL, E_NOINTERFACE},
+        System::Com::{IClassFactory, IClassFactory_Impl},
+        UI::TextServices::{
+            ITfCompositionSink, ITfDisplayAttributeProvider, ITfKeyEventSink, ITfLangBarItem,
+            ITfLangBarItemButton, ITfSource, ITfTextInputProcessor, ITfTextInputProcessorEx,
+            ITfTextLayoutSink, ITfThreadMgrEventSink,
+        },
+    },
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
-use crate::engine::{composition::Composition, input_mode::InputMode};
+use crate::globals::DllModule;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum UpdatePosState {
-    #[default]
-    Idle,
-    Updating {
-        suppress_layout_until: Instant,
-    },
-    SuppressingLayoutChange {
-        until: Instant,
-    },
-}
+use super::text_service_inner::TextServiceInner;
 
-impl UpdatePosState {
-    const LAYOUT_CHANGE_SUPPRESSION: Duration = Duration::from_millis(200);
-
-    pub fn try_begin_update(&mut self, now: Instant) -> bool {
-        if matches!(self, Self::Updating { .. }) {
-            return false;
-        }
-
-        *self = Self::Updating {
-            suppress_layout_until: now + Self::LAYOUT_CHANGE_SUPPRESSION,
-        };
-
-        true
-    }
-
-    pub fn finish_update(&mut self, now: Instant) {
-        *self = match *self {
-            Self::Updating {
-                suppress_layout_until,
-            } if now <= suppress_layout_until => Self::SuppressingLayoutChange {
-                until: suppress_layout_until,
-            },
-            Self::Updating { .. } => Self::Idle,
-            state => state,
-        };
-    }
-
-    pub fn should_skip_layout_change(&mut self, now: Instant) -> bool {
-        match *self {
-            Self::Idle => false,
-            Self::Updating { .. } => true,
-            Self::SuppressingLayoutChange { until } if now <= until => true,
-            Self::SuppressingLayoutChange { .. } => {
-                *self = Self::Idle;
-                false
-            }
-        }
-    }
-}
-
-#[derive(Default, Debug)]
+// TextServiceが実装する必要がある関数を一つの構造体でまとめて実装する。
+// TextServiceInnerにはITfContextやCompositionなど実行中に変更するべきグローバル変数が入っているので、
+// それらを処理しやすいようにすべてRefCellで包んでinnerにまとめている。
+#[derive(Default)]
+#[implement(
+    IClassFactory,
+    ITfTextInputProcessor,
+    ITfTextInputProcessorEx,
+    ITfKeyEventSink,
+    ITfThreadMgrEventSink,
+    ITfTextLayoutSink,
+    ITfCompositionSink,
+    ITfDisplayAttributeProvider,
+    ITfLangBarItem,
+    ITfLangBarItemButton,
+    ITfSource
+)]
+#[derive(Debug)]
 pub struct TextService {
-    pub tid: u32,
-    pub thread_mgr: Option<ITfThreadMgr>,
-    pub context: Option<ITfContext>,
-    pub composition: RefCell<Composition>,
-    pub update_pos_state: UpdatePosState,
-    pub display_attribute_atom: HashMap<GUID, u32>,
-    pub mode: InputMode,
-    pub this: Option<ITfTextInputProcessor>,
+    inner: RefCell<TextServiceInner>,
+}
+
+impl IClassFactory_Impl for TextService_Impl {
+    #[macros::anyhow]
+    fn CreateInstance(
+        &self,
+        punkouter: Option<&IUnknown>,
+        riid: *const GUID,
+        ppvobject: *mut *mut c_void,
+    ) -> Result<()> {
+        let riid = unsafe { *riid };
+        let ppvobject = unsafe { &mut *ppvobject };
+
+        *ppvobject = std::ptr::null_mut();
+
+        if punkouter.is_some() {
+            return Err(anyhow::Error::new(windows::core::Error::from_hresult(
+                E_NOINTERFACE,
+            )));
+        }
+
+        unsafe {
+            *ppvobject = match riid {
+                ITfTextInputProcessor::IID => {
+                    std::mem::transmute::<ITfTextInputProcessor, *mut c_void>(
+                        TextService::create::<ITfTextInputProcessor>()?,
+                    )
+                }
+                ITfTextInputProcessorEx::IID => {
+                    std::mem::transmute::<ITfTextInputProcessorEx, *mut c_void>(
+                        TextService::create::<ITfTextInputProcessorEx>()?,
+                    )
+                }
+                _ => {
+                    return Err(anyhow::Error::new(windows::core::Error::from_hresult(
+                        E_NOINTERFACE,
+                    )))
+                }
+            };
+        }
+
+        Ok(())
+    }
+
+    #[macros::anyhow]
+    fn LockServer(&self, flock: BOOL) -> Result<()> {
+        let mut dll_instance = DllModule::get()?;
+        if flock.into() {
+            dll_instance.add_ref();
+        } else {
+            dll_instance.release();
+        }
+
+        Ok(())
+    }
 }
 
 impl TextService {
-    pub fn this<I: Interface>(&self) -> Result<I> {
-        if let Some(this) = self.this.as_ref() {
-            Ok(this.cast()?)
-        } else {
-            anyhow::bail!("this is null");
-        }
+    pub fn create<I: Interface>() -> Result<I> {
+        let factory = Self {
+            inner: RefCell::new(TextServiceInner::default()),
+        };
+
+        let this = ITfTextInputProcessor::from(factory);
+        let factory = unsafe { this.as_impl() };
+        factory.borrow_mut()?.this = Some(this.clone());
+
+        unsafe { factory.cast::<I>().map_err(|e| anyhow::Error::new(e)) }
     }
 
-    pub fn thread_mgr(&self) -> Result<ITfThreadMgr> {
-        self.thread_mgr.clone().context("Thread manager is null")
+    pub fn borrow_mut(&self) -> Result<RefMut<TextServiceInner>> {
+        Ok(self.inner.try_borrow_mut()?)
     }
 
-    pub fn context<I: Interface>(&self) -> Result<I> {
-        let context = self.context.as_ref().context("Context is null")?;
-        Ok(context.cast()?)
-    }
-
-    pub fn borrow_composition(&self) -> Result<Ref<Composition>> {
-        Ok(self.composition.try_borrow()?)
-    }
-
-    pub fn borrow_mut_composition(&self) -> Result<RefMut<Composition>> {
-        Ok(self.composition.try_borrow_mut()?)
+    pub fn borrow(&self) -> Result<Ref<TextServiceInner>> {
+        Ok(self.inner.try_borrow()?)
     }
 }

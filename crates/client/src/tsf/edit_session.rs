@@ -21,7 +21,7 @@ use anyhow::{Context, Result};
 
 use crate::{engine::state::IMEState, extension::StringExt as _, globals::GUID_DISPLAY_ATTRIBUTE};
 
-use super::factory::TextServiceFactory;
+use super::text_service::TextService;
 
 #[implement(ITfEditSession)]
 struct EditSession<'a, T> {
@@ -63,7 +63,7 @@ impl<'a, T> ITfEditSession_Impl for EditSession_Impl<'a, T> {
     }
 }
 
-impl TextServiceFactory {
+impl TextService {
     #[tracing::instrument]
     pub fn start_composition(&self) -> Result<()> {
         tracing::debug!("start_composition");

@@ -21,9 +21,9 @@ use windows::{
 
 use crate::engine::state::IMEState;
 
-use super::{edit_session::edit_session, factory::TextServiceFactory};
+use super::{edit_session::edit_session, text_service::TextService};
 
-impl TextServiceFactory {
+impl TextService {
     fn to_parent_document_if_exists(
         &self,
         document_manager: Option<ITfDocumentMgr>,

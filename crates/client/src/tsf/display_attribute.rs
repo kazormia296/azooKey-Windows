@@ -36,9 +36,9 @@ use anyhow::Result;
 
 use crate::globals::{DISPLAY_ATTRIBUTE, GUID_DISPLAY_ATTRIBUTE};
 
-use super::factory::TextServiceFactory_Impl;
+use super::text_service::TextService_Impl;
 
-impl ITfDisplayAttributeProvider_Impl for TextServiceFactory_Impl {
+impl ITfDisplayAttributeProvider_Impl for TextService_Impl {
     #[macros::anyhow]
     fn EnumDisplayAttributeInfo(&self) -> windows::core::Result<IEnumTfDisplayAttributeInfo> {
         let enum_info = EnumDisplayAttributeInfo::new();

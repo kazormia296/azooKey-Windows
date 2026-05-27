@@ -4,10 +4,10 @@ use anyhow::Result;
 
 use crate::engine::{client_action::ClientAction, composition::CompositionState};
 
-use super::factory::TextServiceFactory_Impl;
+use super::text_service::TextService_Impl;
 
 // テキストボックスのフォーカスの変更などを取り扱う
-impl ITfThreadMgrEventSink_Impl for TextServiceFactory_Impl {
+impl ITfThreadMgrEventSink_Impl for TextService_Impl {
     #[macros::anyhow]
     fn OnInitDocumentMgr(&self, _pdim: Option<&ITfDocumentMgr>) -> Result<()> {
         Ok(())

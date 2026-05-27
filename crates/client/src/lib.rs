@@ -11,7 +11,7 @@ use std::{ffi::c_void, sync::Mutex};
 
 use globals::{DllModule, DLL_INSTANCE, GUID_TEXT_SERVICE};
 use register::{CLSIDMgr, CategoryMgr, ProfileMgr};
-use tsf::factory::TextServiceFactory;
+use tsf::text_service::TextService;
 use windows::{
     core::{IUnknown, Interface as _, GUID, HRESULT},
     Win32::{
@@ -99,10 +99,10 @@ pub unsafe extern "system" fn DllGetClassObject(
 
         *ppv = match riid {
             IUnknown::IID => std::mem::transmute::<IUnknown, *mut c_void>(IUnknown::from(
-                TextServiceFactory::default(),
+                TextService::default(),
             )),
             IClassFactory::IID => std::mem::transmute::<IClassFactory, *mut c_void>(
-                IClassFactory::from(TextServiceFactory::default()),
+                IClassFactory::from(TextService::default()),
             ),
             _ => return Err(anyhow::anyhow!(E_UNEXPECTED)),
         };

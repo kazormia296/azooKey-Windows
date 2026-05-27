@@ -21,10 +21,10 @@ use windows::{
 
 use anyhow::Result;
 
-use super::factory::TextServiceFactory_Impl;
+use super::text_service::TextService_Impl;
 
 // sink (aka event listener) for key events
-impl ITfKeyEventSink_Impl for TextServiceFactory_Impl {
+impl ITfKeyEventSink_Impl for TextService_Impl {
     #[macros::anyhow]
     #[tracing::instrument]
     fn OnTestKeyDown(

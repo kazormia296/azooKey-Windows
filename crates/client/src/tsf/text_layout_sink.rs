@@ -10,9 +10,9 @@ use anyhow::Result;
 
 use crate::engine::state::IMEState;
 
-use super::{factory::TextServiceFactory_Impl, text_service::TextService};
+use super::{text_service::TextService_Impl, text_service_inner::TextServiceInner};
 
-impl ITfTextLayoutSink_Impl for TextServiceFactory_Impl {
+impl ITfTextLayoutSink_Impl for TextService_Impl {
     // テキストの位置が変化したこっと期の動作を指定するイベントリスナー的なもの
     // ただし、Windows Storeのアプリ（メモ帳とか）では呼ばれないっぽいので注意が必要
     #[macros::anyhow]
@@ -45,7 +45,7 @@ impl ITfTextLayoutSink_Impl for TextServiceFactory_Impl {
     }
 }
 
-impl TextService {
+impl TextServiceInner {
     pub fn advise_text_layout_sink(&mut self, doc_mgr: ITfDocumentMgr) -> Result<()> {
         if IMEState::get()?.context.is_some() {
             self.unadvise_text_layout_sink()?;

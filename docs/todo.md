@@ -14,10 +14,8 @@
   - 候補ウィンドウ関連 (`candidate-window`)
   - installer関係 (`installer`)
   - 変換サーバー関連 (`conversion-server`)
-  - 変換サーバーを起動するlauncher (`launcher`)
+  - 変換サーバーを起動するlauncher (`launcher`) <- これ必要？
   - protobufやブランドアイコンなどをまとめる
-    - Protobuf Parser for SwiftはWindowsでも使えるのか調査
-  - それに伴って密結合している部分をはがしていく
 - llama.cppを含めるかはfeatureありなしでビルドの切り替えをできるようにする（？）
 - Rustのworkspaceを入れるかどうかはやっぱり考え直す
 - テストを増やす、というか今は0なのでテストを作っていく
@@ -60,3 +58,4 @@ weak使ったところで状況は変わらない？
 - compositionを変更する
 - re-enter guardの更新
 
+borrow()する場所をTSF関連の関数に限定して静的解析を生かすようにしたい

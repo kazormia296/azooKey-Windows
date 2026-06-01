@@ -22,7 +22,7 @@ impl ITfTextLayoutSink_Impl for TextService_Impl {
         _lcode: TfLayoutCode,
         _pview: Option<&ITfContextView>,
     ) -> Result<()> {
-        let should_skip = match self.borrow_mut() {
+        let should_skip = match self.try_borrow_mut() {
             Ok(mut text_service) => text_service
                 .update_pos_state
                 .should_skip_layout_change(std::time::Instant::now()),

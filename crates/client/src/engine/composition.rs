@@ -95,7 +95,7 @@ impl TextService {
 
         #[allow(clippy::let_and_return)]
         let (composition, mode) = {
-            let text_service = self.borrow()?;
+            let text_service = self.try_borrow()?;
             let composition = text_service.borrow_composition()?.clone();
             let mode = IMEState::get()?.input_mode.clone();
             (composition, mode)
@@ -317,7 +317,7 @@ impl TextService {
     #[tracing::instrument]
     pub fn handle_key(&self, context: Option<&ITfContext>, wparam: WPARAM) -> Result<bool> {
         if let Some(context) = context {
-            self.borrow_mut()?.context = Some(context.clone());
+            self.try_borrow_mut()?.context = Some(context.clone());
         } else {
             return Ok(false);
         };
@@ -340,7 +340,7 @@ impl TextService {
     ) -> Result<()> {
         #[allow(clippy::let_and_return)]
         let (composition, mode) = {
-            let text_service = self.borrow()?;
+            let text_service = self.try_borrow()?;
             let composition = text_service.borrow_composition()?.clone();
             let mode = IMEState::get()?.input_mode.clone();
             (composition, mode)
@@ -467,7 +467,7 @@ impl TextService {
                 }
                 ClientAction::SetSelection(selection) => {
                     let candidates = {
-                        let text_service = self.borrow()?;
+                        let text_service = self.try_borrow()?;
                         let composition = text_service.borrow_composition()?.clone();
                         let candidates = composition.candidates.clone();
                         candidates
@@ -540,7 +540,7 @@ impl TextService {
             }
         }
 
-        let text_service = self.borrow()?;
+        let text_service = self.try_borrow()?;
         let mut composition = text_service.borrow_mut_composition()?;
 
         composition.preview = preview.clone();

@@ -113,7 +113,7 @@ impl TextService {
 
     pub fn update_context(&self, preview: &str) -> Result<()> {
         let result: Result<()> = (|| unsafe {
-            let text_service = self.borrow()?;
+            let text_service = self.try_borrow()?;
 
             let context = text_service.context::<ITfContext>()?;
             let parent_context = self.to_parent_context_if_exists(Some(context))?;

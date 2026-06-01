@@ -42,7 +42,7 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
             return Ok(());
         }
 
-        let mut text_service = self.borrow_mut()?;
+        let mut text_service = self.try_borrow_mut()?;
 
         text_service.tid = tid;
         let thread_mgr = ptim.context("Thread manager is null")?;
@@ -115,7 +115,7 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
         dll_instance.release();
 
         {
-            let text_service = self.borrow()?;
+            let text_service = self.try_borrow()?;
             let thread_mgr = text_service.thread_mgr()?;
 
             // end composition
@@ -137,7 +137,7 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
             }?;
         }
 
-        let mut text_service = self.borrow_mut()?;
+        let mut text_service = self.try_borrow_mut()?;
         let thread_mgr = text_service.thread_mgr()?;
 
         // remove thread manager event sink

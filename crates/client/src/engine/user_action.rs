@@ -17,11 +17,13 @@ pub enum UserAction {
     Space,
     Tab,
     Escape,
+    // TODO: Unknownにはkey_codeを含めてもいいかも
     Unknown,
     Navigation(Navigation),
     Function(Function),
     // TODO: Numberはu8でよくないか
     Number(i8),
+    // TODO: これは
     ToggleInputMode,
 }
 

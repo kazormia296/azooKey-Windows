@@ -68,7 +68,7 @@ impl TextService {
     pub fn start_composition(&self) -> Result<()> {
         tracing::debug!("start_composition");
 
-        let text_service = self.borrow_mut()?;
+        let text_service = self.try_borrow_mut()?;
         let context = text_service.context()?;
         let context_composition = text_service.context::<ITfContextComposition>()?;
         let sink = text_service.this::<ITfCompositionSink>()?;
@@ -107,7 +107,7 @@ impl TextService {
     #[tracing::instrument]
     pub fn end_composition(&self) -> Result<()> {
         tracing::debug!("end_composition");
-        let text_service = self.borrow()?;
+        let text_service = self.try_borrow()?;
 
         if let Some(composition) = text_service.borrow_composition()?.tip_composition.clone() {
             edit_session(
@@ -161,7 +161,7 @@ impl TextService {
 
     #[tracing::instrument]
     pub fn set_text(&self, text: &str, subtext: &str) -> Result<()> {
-        let text_service = self.borrow()?;
+        let text_service = self.try_borrow()?;
 
         if let Some(composition) = text_service.borrow_composition()?.tip_composition.clone() {
             edit_session(
@@ -215,7 +215,7 @@ impl TextService {
 
     #[tracing::instrument]
     pub fn shift_start(&self, text: &str, subtext: &str) -> Result<()> {
-        let text_service = self.borrow()?;
+        let text_service = self.try_borrow()?;
 
         if let Some(composition) = text_service.borrow_composition()?.tip_composition.clone() {
             edit_session(
@@ -278,7 +278,7 @@ impl TextService {
     #[tracing::instrument]
     pub fn update_pos(&self) -> Result<()> {
         {
-            let mut text_service = match self.borrow_mut() {
+            let mut text_service = match self.try_borrow_mut() {
                 Ok(text_service) => text_service,
                 Err(error) => {
                     tracing::warn!("Skip update_pos due to borrow conflict: {error:?}");
@@ -297,7 +297,7 @@ impl TextService {
 
         let result: Result<()> = (|| {
             let (tid, context, tip_composition) = {
-                let text_service = self.borrow()?;
+                let text_service = self.try_borrow()?;
                 let composition = text_service.borrow_composition()?;
                 (
                     text_service.tid,
@@ -341,7 +341,7 @@ impl TextService {
             Ok(())
         })();
 
-        match self.borrow_mut() {
+        match self.try_borrow_mut() {
             Ok(mut text_service) => {
                 text_service.update_pos_state.finish_update(Instant::now());
             }

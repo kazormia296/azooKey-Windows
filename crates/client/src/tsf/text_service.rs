@@ -107,16 +107,16 @@ impl TextService {
 
         let this = ITfTextInputProcessor::from(factory);
         let factory = unsafe { this.as_impl() };
-        factory.borrow_mut()?.this = Some(this.clone());
+        factory.try_borrow_mut()?.this = Some(this.clone());
 
         unsafe { factory.cast::<I>().map_err(|e| anyhow::Error::new(e)) }
     }
 
-    pub fn borrow_mut(&self) -> Result<RefMut<TextServiceInner>> {
+    pub fn try_borrow_mut(&self) -> Result<RefMut<TextServiceInner>> {
         Ok(self.inner.try_borrow_mut()?)
     }
 
-    pub fn borrow(&self) -> Result<Ref<TextServiceInner>> {
+    pub fn try_borrow(&self) -> Result<Ref<TextServiceInner>> {
         Ok(self.inner.try_borrow()?)
     }
 }

@@ -1,6 +1,3 @@
-// 言語バーを管理する
-// 言語バーとは、右下に表示されるあとかAとかそういうやつ
-
 use windows::{
     core::{IUnknown, Interface as _, BSTR, GUID, PCWSTR},
     Win32::{
@@ -8,9 +5,9 @@ use windows::{
         System::Ole::CONNECT_E_CANNOTCONNECT,
         UI::{
             TextServices::{
-                ITfLangBarItemButton_Impl, ITfLangBarItemSink, ITfLangBarItem_Impl, ITfMenu,
-                ITfSource_Impl, TfLBIClick, GUID_LBI_INPUTMODE, TF_LANGBARITEMINFO,
-                TF_LBI_STYLE_BTN_BUTTON,
+                ITfLangBarItemButton, ITfLangBarItemButton_Impl, ITfLangBarItemMgr,
+                ITfLangBarItemSink, ITfLangBarItem_Impl, ITfMenu, ITfSource_Impl, TfLBIClick,
+                GUID_LBI_INPUTMODE, TF_LANGBARITEMINFO, TF_LBI_STYLE_BTN_BUTTON,
             },
             WindowsAndMessaging::{LoadImageW, HICON, IMAGE_ICON, LR_DEFAULTCOLOR},
         },
@@ -19,8 +16,8 @@ use windows::{
 
 use crate::{
     engine::{
-        client_action::ClientAction,
-        composition::CompositionState,
+        composition,
+        engine_result::EngineResult,
         input_mode::InputMode,
         state::IMEState,
         theme::{get_system_theme, SystemTheme},
@@ -33,7 +30,7 @@ use crate::{
 
 use anyhow::{Context as _, Result};
 
-use super::text_service::TextService_Impl;
+use super::text_service::{TextService, TextService_Impl};
 
 // https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/ns-ctfutb-tf_langbariteminfo
 const LANGUAGE_BAR_INFO: TF_LANGBARITEMINFO = TF_LANGBARITEMINFO {
@@ -85,19 +82,51 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
             }
         };
 
-        let actions = vec![ClientAction::SetIMEMode(mode)];
-        self.handle_action(&actions, CompositionState::None)?;
+        {
+            let mut ipc_service = IMEState::get()?
+                .ipc_service
+                .clone()
+                .context("ipc_service is None")?;
+            ipc_service.clear_text()?;
+            ipc_service.set_input_mode(match &mode {
+                InputMode::Latin => "A",
+                InputMode::Kana => "あ",
+            })?;
+            ipc_service.hide_window()?;
+            ipc_service.set_candidates(vec![])?;
+        }
+
+        let prev_result = {
+            let inner = self.try_borrow()?;
+            let prev = inner.current_result.borrow().clone();
+            prev
+        };
+
+        let result = {
+            let inner = self.try_borrow_mut()?;
+            let mut comp = inner.borrow_mut_composition()?;
+            composition::reset(&mut comp)
+        };
+
+        let result = EngineResult {
+            next_input_mode: Some(mode),
+            ..result
+        };
+
+        self.sync_engine_result(prev_result.as_ref(), &result)?;
+        {
+            let inner = self.try_borrow_mut()?;
+            *inner.current_result.borrow_mut() = Some(result);
+        }
 
         Ok(())
     }
 
-    // this method should not be called
     #[macros::anyhow]
     fn InitMenu(&self, _pmenu: Option<&ITfMenu>) -> Result<()> {
         Ok(())
     }
 
-    // this method should not be called
     #[macros::anyhow]
     fn OnMenuSelect(&self, _w_id: u32) -> Result<()> {
         Ok(())
@@ -141,7 +170,6 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
     }
 }
 
-// TODO: ITfSourceはなんでこんなところにあるのか
 impl ITfSource_Impl for TextService_Impl {
     #[macros::anyhow]
     fn AdviseSink(&self, riid: *const GUID, punk: Option<&IUnknown>) -> Result<u32> {
@@ -169,6 +197,25 @@ impl ITfSource_Impl for TextService_Impl {
                 CONNECT_E_CANNOTCONNECT,
             )));
         }
+
+        Ok(())
+    }
+}
+
+impl TextService {
+    pub fn update_lang_bar(&self) -> Result<()> {
+        let text_service = self.try_borrow()?;
+        let thread_mgr = text_service.thread_mgr()?;
+
+        unsafe {
+            thread_mgr
+                .cast::<ITfLangBarItemMgr>()?
+                .RemoveItem(&text_service.this::<ITfLangBarItemButton>()?)?;
+
+            thread_mgr
+                .cast::<ITfLangBarItemMgr>()?
+                .AddItem(&text_service.this::<ITfLangBarItemButton>()?)?;
+        };
 
         Ok(())
     }

@@ -6,12 +6,16 @@ use std::{
 
 use windows::{
     core::{Interface, GUID},
-    Win32::UI::TextServices::{ITfContext, ITfTextInputProcessor, ITfThreadMgr},
+    Win32::UI::TextServices::{ITfComposition, ITfContext, ITfTextInputProcessor, ITfThreadMgr},
 };
 
 use anyhow::{Context, Result};
 
-use crate::engine::{composition::Composition, input_mode::InputMode};
+use crate::engine::{
+    composition::Composition,
+    engine_result::EngineResult,
+    input_mode::InputMode,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UpdatePosState {
@@ -71,6 +75,8 @@ pub struct TextServiceInner {
     pub thread_mgr: Option<ITfThreadMgr>,
     pub context: Option<ITfContext>,
     pub composition: RefCell<Composition>,
+    pub tip_composition: RefCell<Option<ITfComposition>>,
+    pub current_result: RefCell<Option<EngineResult>>,
     pub update_pos_state: UpdatePosState,
     pub display_attribute_atom: HashMap<GUID, u32>,
     pub mode: InputMode,

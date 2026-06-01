@@ -1,6 +1,3 @@
-// 変換範囲に対する操作を行う場合はEditSessionを介して行う
-//
-//
 use macros::anyhow;
 use windows::{
     core::{implement, AsImpl, VARIANT},
@@ -17,7 +14,7 @@ use windows::{
 
 use std::{cell::Cell, mem::ManuallyDrop, rc::Rc, time::Instant};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::{engine::state::IMEState, extension::StringExt as _, globals::GUID_DISPLAY_ATTRIBUTE};
 
@@ -30,7 +27,6 @@ struct EditSession<'a, T> {
     phantom: std::marker::PhantomData<&'a T>,
 }
 
-// edit action will be performed within this function
 pub fn edit_session<T>(
     client_id: u32,
     context: ITfContext,
@@ -68,21 +64,20 @@ impl TextService {
     pub fn start_composition(&self) -> Result<()> {
         tracing::debug!("start_composition");
 
+        {
+            let text_service = self.try_borrow()?;
+            let exists = text_service.tip_composition.borrow().is_some();
+            if exists {
+                drop(text_service);
+                self.end_composition()?;
+            }
+        }
+
         let text_service = self.try_borrow_mut()?;
         let context = text_service.context()?;
         let context_composition = text_service.context::<ITfContextComposition>()?;
         let sink = text_service.this::<ITfCompositionSink>()?;
         let insert = text_service.context::<ITfInsertAtSelection>()?;
-
-        let tip_exists = {
-            let composition = text_service.borrow_composition()?;
-            composition.tip_composition.is_some()
-        };
-
-        if tip_exists {
-            self.end_composition()?;
-            return Ok(());
-        }
 
         let composition = edit_session::<ITfComposition>(
             text_service.tid,
@@ -99,7 +94,7 @@ impl TextService {
         )?;
 
         tracing::debug!("Composition started {composition:?}");
-        text_service.borrow_mut_composition()?.tip_composition = composition;
+        *text_service.tip_composition.borrow_mut() = composition;
 
         Ok(())
     }
@@ -107,9 +102,16 @@ impl TextService {
     #[tracing::instrument]
     pub fn end_composition(&self) -> Result<()> {
         tracing::debug!("end_composition");
-        let text_service = self.try_borrow()?;
 
-        if let Some(composition) = text_service.borrow_composition()?.tip_composition.clone() {
+        let tip = self
+            .try_borrow()?
+            .tip_composition
+            .borrow()
+            .clone();
+
+        if let Some(composition) = tip {
+            let text_service = self.try_borrow()?;
+
             edit_session(
                 text_service.tid,
                 text_service.context()?,
@@ -117,10 +119,8 @@ impl TextService {
                     let context = text_service.context::<ITfContext>()?;
 
                     move |cookie| unsafe {
-                        // clear display attribute first
                         let range: ITfRange = composition.GetRange()?;
 
-                        // set existing text to the composition
                         let mut text = vec![0; 1024];
                         let mut text_len = 1024;
 
@@ -133,7 +133,6 @@ impl TextService {
                         let prop = context.GetProperty(&GUID_PROP_ATTRIBUTE)?;
                         prop.Clear(cookie, &range)?;
 
-                        // shift the start of the composition
                         range.Collapse(cookie, TF_ANCHOR_END)?;
                         let selection = TF_SELECTION {
                             range: ManuallyDrop::new(Some(range.clone())),
@@ -154,23 +153,27 @@ impl TextService {
             tracing::warn!("Composition is not started");
         }
 
-        text_service.borrow_mut_composition()?.tip_composition = None;
+        *self.try_borrow_mut()?.tip_composition.borrow_mut() = None;
 
         Ok(())
     }
 
     #[tracing::instrument]
     pub fn set_text(&self, text: &str, subtext: &str) -> Result<()> {
-        let text_service = self.try_borrow()?;
+        let tip = self
+            .try_borrow()?
+            .tip_composition
+            .borrow()
+            .clone();
 
-        if let Some(composition) = text_service.borrow_composition()?.tip_composition.clone() {
+        if let Some(composition) = tip {
+            let text_service = self.try_borrow()?;
+
             edit_session(
                 text_service.tid,
                 text_service.context()?,
                 Rc::new({
                     let text_len = text.chars().count() as i32;
-
-                    // unpadded is all you need!
                     let text = format!("{text}{subtext}").as_str().to_wide_16_unpadded();
                     let context = text_service.context::<ITfContext>()?;
                     let display_attribute_atom = text_service.display_attribute_atom.clone();
@@ -179,12 +182,12 @@ impl TextService {
                         let range = composition.GetRange()?;
                         range.SetText(cookie, TF_ST_CORRECTION, &text)?;
 
-                        // first, set the display attribute to the "text" part
                         let text_range = range.Clone()?;
                         text_range.Collapse(cookie, TF_ANCHOR_START)?;
                         let mut shifted: i32 = 0;
                         text_range.ShiftEnd(cookie, text_len, &mut shifted, std::ptr::null())?;
-                        let display_attribute = display_attribute_atom.get(&GUID_DISPLAY_ATTRIBUTE);
+                        let display_attribute =
+                            display_attribute_atom.get(&GUID_DISPLAY_ATTRIBUTE);
                         if let Some(display_attribute) = display_attribute {
                             let pvar = VARIANT::from(*display_attribute as i32);
                             let prop = context.GetProperty(&GUID_PROP_ATTRIBUTE)?;
@@ -215,9 +218,15 @@ impl TextService {
 
     #[tracing::instrument]
     pub fn shift_start(&self, text: &str, subtext: &str) -> Result<()> {
-        let text_service = self.try_borrow()?;
+        let tip = self
+            .try_borrow()?
+            .tip_composition
+            .borrow()
+            .clone();
 
-        if let Some(composition) = text_service.borrow_composition()?.tip_composition.clone() {
+        if let Some(composition) = tip {
+            let text_service = self.try_borrow()?;
+
             edit_session(
                 text_service.tid,
                 text_service.context()?,
@@ -228,11 +237,9 @@ impl TextService {
                     let display_attribute_atom = text_service.display_attribute_atom.clone();
 
                     move |cookie| unsafe {
-                        // first, shift the start of the composition
                         let range = composition.GetRange()?;
                         let mut shifted: i32 = 0;
 
-                        // and clear the display attribute
                         let prop = context.GetProperty(&GUID_PROP_ATTRIBUTE)?;
                         prop.Clear(cookie, &range)?;
 
@@ -241,12 +248,12 @@ impl TextService {
 
                         composition.ShiftStart(cookie, &range)?;
 
-                        // then, set the display attribute
                         let range = composition.GetRange()?;
 
                         range.SetText(cookie, TF_ST_CORRECTION, &subtext)?;
 
-                        let display_attribute = display_attribute_atom.get(&GUID_DISPLAY_ATTRIBUTE);
+                        let display_attribute =
+                            display_attribute_atom.get(&GUID_DISPLAY_ATTRIBUTE);
                         if let Some(display_attribute) = display_attribute {
                             let pvar = VARIANT::from(*display_attribute as i32);
                             let prop = context.GetProperty(&GUID_PROP_ATTRIBUTE)?;
@@ -298,12 +305,10 @@ impl TextService {
         let result: Result<()> = (|| {
             let (tid, context, tip_composition) = {
                 let text_service = self.try_borrow()?;
-                let composition = text_service.borrow_composition()?;
-                (
-                    text_service.tid,
-                    text_service.context::<ITfContext>()?,
-                    composition.tip_composition.clone(),
-                )
+                let tid = text_service.tid;
+                let context = text_service.context::<ITfContext>()?;
+                let tip_composition = text_service.tip_composition.borrow().clone();
+                (tid, context, tip_composition)
             };
 
             if let Some(tip_composition) = tip_composition {
@@ -317,7 +322,8 @@ impl TextService {
                             let view = context.GetActiveView()?;
                             let range = tip_composition.GetRange()?;
 
-                            let Some(mut ipc_service) = IMEState::get()?.ipc_service.clone() else {
+                            let Some(mut ipc_service) = IMEState::get()?.ipc_service.clone()
+                            else {
                                 return Ok(());
                             };
 
@@ -343,7 +349,9 @@ impl TextService {
 
         match self.try_borrow_mut() {
             Ok(mut text_service) => {
-                text_service.update_pos_state.finish_update(Instant::now());
+                text_service
+                    .update_pos_state
+                    .finish_update(Instant::now());
             }
             Err(error) => {
                 tracing::warn!("Failed to reset update_pos guard: {error:?}");

@@ -1,3 +1,5 @@
+pub(super) mod action_handler;
+pub(super) mod composition_sink;
 pub(super) mod display_attribute;
 pub(super) mod edit_session;
 pub(super) mod text_service;

@@ -1,13 +1,13 @@
 use std::cmp::{max, min};
 
-use crate::{
-    engine::user_action::UserAction,
-    extension::VKeyExt as _,
-    tsf::text_service::{TextService, TextService_Impl},
+use crate::{engine::user_action::UserAction, extension::VKeyExt as _};
+use windows::Win32::{
+    Foundation::WPARAM,
+    UI::Input::KeyboardAndMouse::VK_CONTROL,
 };
 
 use super::{
-    client_action::{ClientAction, SetSelectionType, SetTextType},
+    engine_result::{CandidateUIState, CompositionSpan, EngineResult, SetTextType},
     full_width::{to_fullwidth, to_halfwidth},
     input_mode::InputMode,
     ipc_service::Candidates,
@@ -15,18 +15,9 @@ use super::{
     text_util::{to_half_katakana, to_katakana},
     user_action::{Function, Navigation},
 };
-use windows::Win32::{
-    Foundation::WPARAM,
-    UI::{
-        Input::KeyboardAndMouse::VK_CONTROL,
-        TextServices::{ITfComposition, ITfCompositionSink_Impl, ITfContext},
-    },
-};
 
 use anyhow::{Context, Result};
 
-// 変換中の状態
-// TODO: 名前がぎりわからない
 #[derive(Default, Clone, PartialEq, Debug)]
 pub enum CompositionState {
     #[default]
@@ -49,8 +40,7 @@ pub struct Composition {
 
     // 選択している候補のindex
     // TODO: candidate_indexのほうがよくないか
-    // TODO: i32じゃなくusizeあたりのほうがいいのでは
-    pub selection_index: i32,
+    pub selection_index: usizee,
     // 候補のリスト、これはText Serviceで持つべきものなのか？
     pub candidates: Candidates,
 
@@ -58,500 +48,504 @@ pub struct Composition {
     pub tip_composition: Option<ITfComposition>,
 }
 
-// TODO: tsfに切り出し
-impl ITfCompositionSink_Impl for TextService_Impl {
-    #[macros::anyhow]
-    fn OnCompositionTerminated(
-        &self,
-        _ecwrite: u32,
-        _pcomposition: Option<&ITfComposition>,
-    ) -> Result<()> {
-        // if user clicked outside the composition, the composition will be terminated
-        tracing::debug!("OnCompositionTerminated");
-
-        let actions = vec![ClientAction::EndComposition];
-        self.handle_action(&actions, CompositionState::None)?;
-
-        Ok(())
+fn engine_result_from(composition: &Composition) -> EngineResult {
+    EngineResult {
+        spans: spans_from(composition),
+        candidate_ui_state: candidate_ui_from(composition),
+        next_input_mode: None,
     }
 }
 
-// TODO: テストの追加
-impl TextService {
-    #[tracing::instrument]
-    pub fn process_key(
-        &self,
-        context: Option<&ITfContext>,
-        wparam: WPARAM,
-    ) -> Result<Option<(Vec<ClientAction>, CompositionState)>> {
-        if context.is_none() {
-            return Ok(None);
-        };
-
-        // check shortcut keys
-        if VK_CONTROL.is_pressed() {
-            return Ok(None);
+fn spans_from(composition: &Composition) -> Vec<CompositionSpan> {
+    if composition.state == CompositionState::None || composition.preview.is_empty() {
+        return vec![];
+    }
+    let text = format!("{}{}", composition.preview, composition.suffix);
+    match composition.state {
+        CompositionState::Composing => {
+            vec![CompositionSpan::Composing { text }]
         }
+        CompositionState::Previewing | CompositionState::Selecting => {
+            vec![CompositionSpan::Selecting { text }]
+        }
+        _ => vec![],
+    }
+}
 
-        #[allow(clippy::let_and_return)]
-        let (composition, mode) = {
-            let text_service = self.try_borrow()?;
-            let composition = text_service.borrow_composition()?.clone();
-            let mode = IMEState::get()?.input_mode.clone();
-            (composition, mode)
-        };
+fn candidate_ui_from(composition: &Composition) -> CandidateUIState {
+    if composition.state == CompositionState::None {
+        CandidateUIState::Hide
+    } else if composition.candidates.texts.is_empty() {
+        CandidateUIState::Hide
+    } else {
+        CandidateUIState::Show {
+            candidates: composition.candidates.texts.clone(),
+            index: composition.selection_index,
+        }
+    }
+}
 
-        let action = UserAction::try_from(wparam.0)?;
+fn reset_composition(composition: &mut Composition) {
+    composition.selection_index = 0;
+    composition.corresponding_count = 0;
+    composition.preview.clear();
+    composition.suffix.clear();
+    composition.raw_input.clear();
+    composition.raw_hiragana.clear();
+    composition.candidates = Candidates::default();
+    composition.state = CompositionState::None;
+}
 
-        let (transition, actions) = match composition.state {
-            CompositionState::None => match action {
-                UserAction::Input(char) if mode == InputMode::Kana => (
-                    CompositionState::Composing,
-                    vec![
-                        ClientAction::StartComposition,
-                        ClientAction::AppendText(char.to_string()),
-                    ],
-                ),
-                UserAction::Number(number) if mode == InputMode::Kana => (
-                    CompositionState::Composing,
-                    vec![
-                        ClientAction::StartComposition,
-                        ClientAction::AppendText(number.to_string()),
-                    ],
-                ),
-                UserAction::ToggleInputMode => (
-                    CompositionState::None,
-                    vec![match mode {
-                        InputMode::Kana => ClientAction::SetIMEMode(InputMode::Latin),
-                        InputMode::Latin => ClientAction::SetIMEMode(InputMode::Kana),
-                    }],
-                ),
-                _ => {
-                    return Ok(None);
-                }
-            },
-            CompositionState::Composing => match action {
-                UserAction::Input(char) => (
-                    CompositionState::Composing,
-                    vec![ClientAction::AppendText(char.to_string())],
-                ),
-                UserAction::Number(number) => (
-                    CompositionState::Composing,
-                    vec![ClientAction::AppendText(number.to_string())],
-                ),
-                UserAction::Backspace => {
-                    if composition.preview.chars().count() == 1 {
-                        (
-                            CompositionState::None,
-                            vec![ClientAction::RemoveText, ClientAction::EndComposition],
-                        )
-                    } else {
-                        (CompositionState::Composing, vec![ClientAction::RemoveText])
-                    }
-                }
-                UserAction::Enter => {
-                    if composition.suffix.is_empty() {
-                        (CompositionState::None, vec![ClientAction::EndComposition])
-                    } else {
-                        (
-                            CompositionState::Composing,
-                            vec![ClientAction::ShrinkText("".to_string())],
-                        )
-                    }
-                }
-                UserAction::Escape => (
-                    CompositionState::None,
-                    vec![ClientAction::RemoveText, ClientAction::EndComposition],
-                ),
-                UserAction::Navigation(direction) => match direction {
-                    Navigation::Right => (
-                        CompositionState::Composing,
-                        vec![ClientAction::MoveCursor(1)],
-                    ),
-                    Navigation::Left => (
-                        CompositionState::Composing,
-                        vec![ClientAction::MoveCursor(-1)],
-                    ),
-                    Navigation::Up => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetSelection(SetSelectionType::Up)],
-                    ),
-                    Navigation::Down => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetSelection(SetSelectionType::Down)],
-                    ),
-                },
-                UserAction::ToggleInputMode => (
-                    CompositionState::None,
-                    vec![
-                        ClientAction::EndComposition,
-                        ClientAction::SetIMEMode(InputMode::Latin),
-                    ],
-                ),
-                UserAction::Space | UserAction::Tab => (
-                    CompositionState::Previewing,
-                    vec![ClientAction::SetSelection(SetSelectionType::Down)],
-                ),
-                UserAction::Function(key) => match key {
-                    Function::Six => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::Hiragana)],
-                    ),
-                    Function::Seven => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::Katakana)],
-                    ),
-                    Function::Eight => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::HalfKatakana)],
-                    ),
-                    Function::Nine => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::FullLatin)],
-                    ),
-                    Function::Ten => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::HalfLatin)],
-                    ),
-                },
-                _ => {
-                    return Ok(None);
-                }
-            },
-            CompositionState::Previewing => match action {
-                UserAction::Input(char) => (
-                    CompositionState::Composing,
-                    vec![ClientAction::ShrinkText(char.to_string())],
-                ),
-                UserAction::Number(number) => (
-                    CompositionState::Composing,
-                    vec![ClientAction::ShrinkText(number.to_string())],
-                ),
-                UserAction::Backspace => {
-                    if composition.preview.chars().count() == 1 {
-                        (
-                            CompositionState::None,
-                            vec![ClientAction::RemoveText, ClientAction::EndComposition],
-                        )
-                    } else {
-                        (CompositionState::Composing, vec![ClientAction::RemoveText])
-                    }
-                }
-                UserAction::Enter => {
-                    if composition.suffix.is_empty() {
-                        (CompositionState::None, vec![ClientAction::EndComposition])
-                    } else {
-                        (
-                            CompositionState::Composing,
-                            vec![ClientAction::ShrinkText("".to_string())],
-                        )
-                    }
-                }
-                UserAction::Escape => (
-                    CompositionState::None,
-                    vec![ClientAction::RemoveText, ClientAction::EndComposition],
-                ),
-                UserAction::Navigation(direction) => match direction {
-                    Navigation::Right => (
-                        CompositionState::Composing,
-                        vec![ClientAction::MoveCursor(1)],
-                    ),
-                    Navigation::Left => (
-                        CompositionState::Composing,
-                        vec![ClientAction::MoveCursor(-1)],
-                    ),
-                    Navigation::Up => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetSelection(SetSelectionType::Up)],
-                    ),
-                    Navigation::Down => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetSelection(SetSelectionType::Down)],
-                    ),
-                },
-                UserAction::ToggleInputMode => (
-                    CompositionState::None,
-                    vec![
-                        ClientAction::EndComposition,
-                        ClientAction::SetIMEMode(InputMode::Latin),
-                    ],
-                ),
-                UserAction::Space | UserAction::Tab => (
-                    CompositionState::Previewing,
-                    vec![ClientAction::SetSelection(SetSelectionType::Down)],
-                ),
-                UserAction::Function(key) => match key {
-                    Function::Six => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::Hiragana)],
-                    ),
-                    Function::Seven => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::Katakana)],
-                    ),
-                    Function::Eight => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::HalfKatakana)],
-                    ),
-                    Function::Nine => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::FullLatin)],
-                    ),
-                    Function::Ten => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::HalfLatin)],
-                    ),
-                },
-                _ => {
-                    return Ok(None);
-                }
-            },
-            _ => {
-                return Ok(None);
+#[tracing::instrument]
+pub fn process_key(
+    composition: &mut Composition,
+    input_mode: &InputMode,
+    wparam: WPARAM,
+) -> Result<Option<EngineResult>> {
+    // check shortcut keys
+    if VK_CONTROL.is_pressed() {
+        return Ok(None);
+    }
+
+    let action = UserAction::try_from(wparam.0)?;
+    let mut ipc_service = IMEState::get()?
+        .ipc_service
+        .clone()
+        .context("ipc_service is None")?;
+
+    match composition.state {
+        CompositionState::None => match action {
+            UserAction::Input(char) if *input_mode == InputMode::Kana => {
+                let text = to_fullwidth(&char.to_string(), false);
+                let candidates = ipc_service.append_text(text)?;
+                composition.raw_input.push(char);
+                composition.raw_hiragana = candidates.hiragana.clone();
+                composition.corresponding_count = candidates.corresponding_count[0];
+                composition.preview = candidates.texts[0].clone();
+                composition.suffix = candidates.sub_texts[0].clone();
+                composition.candidates = candidates;
+                composition.selection_index = 0;
+                composition.state = CompositionState::Composing;
+                Ok(Some(engine_result_from(composition)))
             }
-        };
-
-        Ok(Some((actions, transition)))
-    }
-
-    #[tracing::instrument]
-    pub fn handle_key(&self, context: Option<&ITfContext>, wparam: WPARAM) -> Result<bool> {
-        if let Some(context) = context {
-            self.try_borrow_mut()?.context = Some(context.clone());
-        } else {
-            return Ok(false);
-        };
-
-        if let Some((actions, transition)) = self.process_key(context, wparam)? {
-            self.handle_action(&actions, transition)?;
-        } else {
-            return Ok(false);
-        }
-
-        Ok(true)
-    }
-
-    // TODO: 汚いコード。まずはサーバーへの切り出しを行ってそのあとに修正などを行っていく
-    #[tracing::instrument]
-    pub fn handle_action(
-        &self,
-        actions: &[ClientAction],
-        transition: CompositionState,
-    ) -> Result<()> {
-        #[allow(clippy::let_and_return)]
-        let (composition, mode) = {
-            let text_service = self.try_borrow()?;
-            let composition = text_service.borrow_composition()?.clone();
-            let mode = IMEState::get()?.input_mode.clone();
-            (composition, mode)
-        };
-
-        let mut preview = composition.preview.clone();
-        let mut suffix = composition.suffix.clone();
-        let mut raw_input = composition.raw_input.clone();
-        let mut raw_hiragana = composition.raw_hiragana.clone();
-        let mut corresponding_count = composition.corresponding_count.clone();
-        let mut candidates = composition.candidates.clone();
-        let mut selection_index = composition.selection_index;
-        let mut ipc_service = IMEState::get()?
-            .ipc_service
-            .clone()
-            .context("ipc_service is None")?;
-        let mut transition = transition;
-
-        self.update_context(&preview)?;
-
-        for action in actions {
-            match action {
-                ClientAction::StartComposition => {
-                    self.start_composition()?;
-                    self.update_pos()?;
-                    ipc_service.show_window()?;
-                }
-                ClientAction::EndComposition => {
-                    self.end_composition()?;
-                    selection_index = 0;
-                    corresponding_count = 0;
-                    preview.clear();
-                    suffix.clear();
-                    raw_input.clear();
-                    raw_hiragana.clear();
+            UserAction::Number(number) if *input_mode == InputMode::Kana => {
+                let text = to_fullwidth(&number.to_string(), false);
+                let candidates = ipc_service.append_text(text)?;
+                composition.raw_input.push(char::from(number as u8 + b'0'));
+                composition.raw_hiragana = candidates.hiragana.clone();
+                composition.corresponding_count = candidates.corresponding_count[0];
+                composition.preview = candidates.texts[0].clone();
+                composition.suffix = candidates.sub_texts[0].clone();
+                composition.candidates = candidates;
+                composition.selection_index = 0;
+                composition.state = CompositionState::Composing;
+                Ok(Some(engine_result_from(composition)))
+            }
+            UserAction::ToggleInputMode => {
+                let next_mode = match input_mode {
+                    InputMode::Kana => InputMode::Latin,
+                    InputMode::Latin => InputMode::Kana,
+                };
+                let mode_str = match &next_mode {
+                    InputMode::Latin => "A",
+                    InputMode::Kana => "あ",
+                };
+                ipc_service.clear_text()?;
+                ipc_service.set_input_mode(mode_str)?;
+                ipc_service.hide_window()?;
+                ipc_service.set_candidates(vec![])?;
+                Ok(Some(EngineResult {
+                    spans: vec![],
+                    candidate_ui_state: CandidateUIState::Hide,
+                    next_input_mode: Some(next_mode),
+                }))
+            }
+            _ => Ok(None),
+        },
+        CompositionState::Composing => match action {
+            UserAction::Input(char) => {
+                let text = to_fullwidth(&char.to_string(), false);
+                composition.raw_input.push(char);
+                let candidates = ipc_service.append_text(text)?;
+                composition.raw_hiragana = candidates.hiragana.clone();
+                composition.corresponding_count = candidates.corresponding_count[composition.selection_index];
+                composition.preview = candidates.texts[composition.selection_index].clone();
+                composition.suffix = candidates.sub_texts[composition.selection_index].clone();
+                composition.candidates = candidates;
+                Ok(Some(engine_result_from(composition)))
+            }
+            UserAction::Number(number) => {
+                let text = to_fullwidth(&number.to_string(), false);
+                composition.raw_input.push(char::from(number as u8 + b'0'));
+                let candidates = ipc_service.append_text(text)?;
+                composition.raw_hiragana = candidates.hiragana.clone();
+                composition.corresponding_count = candidates.corresponding_count[composition.selection_index];
+                composition.preview = candidates.texts[composition.selection_index].clone();
+                composition.suffix = candidates.sub_texts[composition.selection_index].clone();
+                composition.candidates = candidates;
+                Ok(Some(engine_result_from(composition)))
+            }
+            UserAction::Backspace => {
+                if composition.preview.chars().count() <= 1 {
+                    ipc_service.remove_text()?;
                     ipc_service.hide_window()?;
                     ipc_service.set_candidates(vec![])?;
                     ipc_service.clear_text()?;
-                }
-                ClientAction::AppendText(text) => {
-                    raw_input.push_str(&text);
-
-                    let text = match mode {
-                        InputMode::Kana => to_fullwidth(text, false),
-                        InputMode::Latin => text.to_string(),
-                    };
-
-                    candidates = ipc_service.append_text(text.clone())?;
-                    let text = candidates.texts[selection_index as usize].clone();
-                    let sub_text = candidates.sub_texts[selection_index as usize].clone();
-                    let hiragana = candidates.hiragana.clone();
-
-                    corresponding_count = candidates.corresponding_count[selection_index as usize];
-
-                    preview = text.clone();
-                    suffix = sub_text.clone();
-                    raw_hiragana = hiragana.clone();
-
-                    self.set_text(&text, &sub_text)?;
-                    ipc_service.set_candidates(candidates.texts.clone())?;
-                    ipc_service.set_selection(selection_index as i32)?;
-                }
-                ClientAction::RemoveText => {
-                    candidates = ipc_service.remove_text()?;
-                    let empty = "".to_string();
+                    reset_composition(composition);
+                    Ok(Some(EngineResult {
+                        spans: vec![],
+                        candidate_ui_state: CandidateUIState::Hide,
+                        next_input_mode: None,
+                    }))
+                } else {
+                    let candidates = ipc_service.remove_text()?;
+                    let empty = String::new();
                     let text = candidates
                         .texts
-                        .get(selection_index as usize)
+                        .get(composition.selection_index)
                         .cloned()
                         .unwrap_or(empty.clone());
                     let sub_text = candidates
                         .sub_texts
-                        .get(selection_index as usize)
+                        .get(composition.selection_index)
                         .cloned()
-                        .unwrap_or(empty.clone());
-                    let hiragana = candidates.hiragana.clone();
-                    corresponding_count = candidates
+                        .unwrap_or(empty);
+                    composition.raw_hiragana = candidates.hiragana.clone();
+                    composition.corresponding_count = candidates
                         .corresponding_count
-                        .get(selection_index as usize)
+                        .get(composition.selection_index)
                         .cloned()
                         .unwrap_or(0);
-
-                    raw_input = raw_input
+                    composition.raw_input = composition
+                        .raw_input
                         .chars()
-                        .take(corresponding_count as usize)
+                        .take(composition.corresponding_count as usize)
                         .collect();
-                    preview = text.clone();
-                    suffix = sub_text.clone();
-                    raw_hiragana = hiragana.clone();
-
-                    self.set_text(&text, &sub_text)?;
-                    ipc_service.set_candidates(candidates.texts.clone())?;
-                    ipc_service.set_selection(selection_index as i32)?;
-                }
-                ClientAction::MoveCursor(_offset) => {
-                    // TODO: I'll use azookey-kkc's composingText
-                    // self.set_cursor(offset)?;
-                }
-                ClientAction::SetIMEMode(mode) => {
-                    self.start_composition()?;
-                    self.update_pos()?;
-                    self.end_composition()?;
-
-                    let mut ime_state = IMEState::get()?;
-                    ime_state.input_mode = mode.clone();
-
-                    // update the language bar
-                    self.update_lang_bar()?;
-
-                    let mode = match mode {
-                        InputMode::Latin => "A",
-                        InputMode::Kana => "あ",
-                    };
-
-                    ipc_service.set_input_mode(mode)?;
-
-                    selection_index = 0;
-                    corresponding_count = 0;
-                    preview.clear();
-                    suffix.clear();
-                    raw_input.clear();
-                    raw_hiragana.clear();
-                    ipc_service.clear_text()?;
-                }
-                ClientAction::SetSelection(selection) => {
-                    let candidates = {
-                        let text_service = self.try_borrow()?;
-                        let composition = text_service.borrow_composition()?.clone();
-                        let candidates = composition.candidates.clone();
-                        candidates
-                    };
-
-                    let texts = candidates.texts.clone();
-                    let sub_texts = candidates.sub_texts.clone();
-
-                    selection_index = match selection {
-                        SetSelectionType::Up => max(0, selection_index - 1),
-                        SetSelectionType::Down => min(texts.len() as i32 - 1, selection_index + 1),
-                        SetSelectionType::Number(number) => *number,
-                    };
-
-                    ipc_service.set_selection(selection_index as i32)?;
-                    let text = texts[selection_index as usize].clone();
-                    let sub_text = sub_texts[selection_index as usize].clone();
-                    let hiragana = candidates.hiragana.clone();
-                    corresponding_count = candidates.corresponding_count[selection_index as usize];
-
-                    preview = text.clone();
-                    suffix = sub_text.clone();
-                    raw_hiragana = hiragana.clone();
-
-                    self.set_text(&text, &sub_text)?;
-                }
-                ClientAction::ShrinkText(text) => {
-                    // shrink text
-                    raw_input.push_str(&text);
-                    raw_input = raw_input
-                        .chars()
-                        .skip(corresponding_count as usize)
-                        .collect();
-
-                    ipc_service.shrink_text(corresponding_count.clone())?;
-                    let text = match mode {
-                        InputMode::Kana => to_fullwidth(text, false),
-                        InputMode::Latin => text.to_string(),
-                    };
-                    candidates = ipc_service.append_text(text)?;
-                    selection_index = 0;
-
-                    let text = candidates.texts[selection_index as usize].clone();
-                    let sub_text = candidates.sub_texts[selection_index as usize].clone();
-                    let hiragana = candidates.hiragana.clone();
-                    self.shift_start(&preview, &text)?;
-
-                    corresponding_count = candidates.corresponding_count[selection_index as usize];
-                    preview = text.clone();
-                    suffix = sub_text.clone();
-                    raw_hiragana = hiragana.clone();
-
-                    ipc_service.set_candidates(candidates.texts.clone())?;
-                    ipc_service.set_selection(selection_index as i32)?;
-                    self.update_pos()?;
-
-                    transition = CompositionState::Composing;
-                }
-                ClientAction::SetTextWithType(set_type) => {
-                    let text = match set_type {
-                        SetTextType::Hiragana => raw_hiragana.clone(),
-                        SetTextType::Katakana => to_katakana(&raw_hiragana),
-                        SetTextType::HalfKatakana => to_half_katakana(&raw_hiragana),
-                        SetTextType::FullLatin => to_fullwidth(&raw_input, true),
-                        SetTextType::HalfLatin => to_halfwidth(&raw_input),
-                    };
-
-                    self.set_text(&text, "")?;
+                    composition.preview = text;
+                    composition.suffix = sub_text;
+                    composition.candidates = candidates;
+                    Ok(Some(engine_result_from(composition)))
                 }
             }
-        }
+            UserAction::Enter => {
+                if composition.suffix.is_empty() {
+                    ipc_service.hide_window()?;
+                    ipc_service.set_candidates(vec![])?;
+                    ipc_service.clear_text()?;
+                    reset_composition(composition);
+                    Ok(Some(EngineResult {
+                        spans: vec![],
+                        candidate_ui_state: CandidateUIState::Hide,
+                        next_input_mode: None,
+                    }))
+                } else {
+                    let text = String::new();
+                    composition.raw_input.push_str(&text);
+                    composition.raw_input = composition
+                        .raw_input
+                        .chars()
+                        .skip(composition.corresponding_count as usize)
+                        .collect();
+                    ipc_service.shrink_text(composition.corresponding_count)?;
+                    let candidates = ipc_service.append_text(text)?;
+                    composition.selection_index = 0;
+                    composition.raw_hiragana = candidates.hiragana.clone();
+                    composition.corresponding_count = candidates.corresponding_count[0];
+                    composition.preview = candidates.texts[0].clone();
+                    composition.suffix = candidates.sub_texts[0].clone();
+                    composition.candidates = candidates;
+                    composition.state = CompositionState::Composing;
+                    Ok(Some(engine_result_from(composition)))
+                }
+            }
+            UserAction::Escape => {
+                ipc_service.remove_text()?;
+                ipc_service.hide_window()?;
+                ipc_service.set_candidates(vec![])?;
+                ipc_service.clear_text()?;
+                reset_composition(composition);
+                Ok(Some(EngineResult {
+                    spans: vec![],
+                    candidate_ui_state: CandidateUIState::Hide,
+                    next_input_mode: None,
+                }))
+            }
+            UserAction::Navigation(direction) => match direction {
+                Navigation::Right | Navigation::Left => {
+                    Ok(Some(engine_result_from(composition)))
+                }
+                Navigation::Up => {
+                    composition.state = CompositionState::Previewing;
+                    Ok(Some(engine_result_from(composition)))
+                }
+                Navigation::Down => {
+                    composition.state = CompositionState::Previewing;
+                    Ok(Some(engine_result_from(composition)))
+                }
+            },
+            UserAction::Space | UserAction::Tab => {
+                composition.state = CompositionState::Previewing;
+                Ok(Some(engine_result_from(composition)))
+            }
+            UserAction::ToggleInputMode => {
+                let next_mode = InputMode::Latin;
+                let mode_str = "A";
+                ipc_service.clear_text()?;
+                ipc_service.set_input_mode(mode_str)?;
+                ipc_service.hide_window()?;
+                ipc_service.set_candidates(vec![])?;
+                reset_composition(composition);
+                Ok(Some(EngineResult {
+                    spans: vec![],
+                    candidate_ui_state: CandidateUIState::Hide,
+                    next_input_mode: Some(next_mode),
+                }))
+            }
+            UserAction::Function(key) => {
+                let set_type = match key {
+                    Function::Six => SetTextType::Hiragana,
+                    Function::Seven => SetTextType::Katakana,
+                    Function::Eight => SetTextType::HalfKatakana,
+                    Function::Nine => SetTextType::FullLatin,
+                    Function::Ten => SetTextType::HalfLatin,
+                };
+                let text = match set_type {
+                    SetTextType::Hiragana => composition.raw_hiragana.clone(),
+                    SetTextType::Katakana => to_katakana(&composition.raw_hiragana),
+                    SetTextType::HalfKatakana => to_half_katakana(&composition.raw_hiragana),
+                    SetTextType::FullLatin => to_fullwidth(&composition.raw_input, true),
+                    SetTextType::HalfLatin => to_halfwidth(&composition.raw_input),
+                };
+                composition.preview = text.clone();
+                composition.suffix.clear();
+                Ok(Some(EngineResult {
+                    spans: vec![CompositionSpan::Composing { text }],
+                    candidate_ui_state: candidate_ui_from(composition),
+                    next_input_mode: None,
+                }))
+            }
+            _ => Ok(None),
+        },
+        CompositionState::Previewing | CompositionState::Selecting => match action {
+            UserAction::Input(char) => {
+                composition.raw_input.push(char);
+                let text = to_fullwidth(&char.to_string(), false);
+                let count = composition.corresponding_count;
+                composition.raw_input = composition
+                    .raw_input
+                    .chars()
+                    .skip(count as usize)
+                    .collect();
+                ipc_service.shrink_text(count)?;
+                let candidates = ipc_service.append_text(text)?;
+                composition.selection_index = 0;
+                composition.raw_hiragana = candidates.hiragana.clone();
+                composition.corresponding_count = candidates.corresponding_count[0];
+                composition.preview = candidates.texts[0].clone();
+                composition.suffix = candidates.sub_texts[0].clone();
+                composition.candidates = candidates;
+                composition.state = CompositionState::Composing;
+                Ok(Some(engine_result_from(composition)))
+            }
+            UserAction::Number(number) => {
+                composition.raw_input.push(char::from(number as u8 + b'0'));
+                let text = to_fullwidth(&number.to_string(), false);
+                let count = composition.corresponding_count;
+                composition.raw_input = composition
+                    .raw_input
+                    .chars()
+                    .skip(count as usize)
+                    .collect();
+                ipc_service.shrink_text(count)?;
+                let candidates = ipc_service.append_text(text)?;
+                composition.selection_index = 0;
+                composition.raw_hiragana = candidates.hiragana.clone();
+                composition.corresponding_count = candidates.corresponding_count[0];
+                composition.preview = candidates.texts[0].clone();
+                composition.suffix = candidates.sub_texts[0].clone();
+                composition.candidates = candidates;
+                composition.state = CompositionState::Composing;
+                Ok(Some(engine_result_from(composition)))
+            }
+            UserAction::Backspace => {
+                if composition.preview.chars().count() <= 1 {
+                    ipc_service.remove_text()?;
+                    ipc_service.hide_window()?;
+                    ipc_service.set_candidates(vec![])?;
+                    ipc_service.clear_text()?;
+                    reset_composition(composition);
+                    Ok(Some(EngineResult {
+                        spans: vec![],
+                        candidate_ui_state: CandidateUIState::Hide,
+                        next_input_mode: None,
+                    }))
+                } else {
+                    let candidates = ipc_service.remove_text()?;
+                    let empty = String::new();
+                    let text = candidates
+                        .texts
+                        .get(composition.selection_index)
+                        .cloned()
+                        .unwrap_or(empty.clone());
+                    let sub_text = candidates
+                        .sub_texts
+                        .get(composition.selection_index)
+                        .cloned()
+                        .unwrap_or(empty);
+                    composition.raw_hiragana = candidates.hiragana.clone();
+                    composition.corresponding_count = candidates
+                        .corresponding_count
+                        .get(composition.selection_index)
+                        .cloned()
+                        .unwrap_or(0);
+                    composition.raw_input = composition
+                        .raw_input
+                        .chars()
+                        .take(composition.corresponding_count as usize)
+                        .collect();
+                    composition.preview = text;
+                    composition.suffix = sub_text;
+                    composition.candidates = candidates;
+                    composition.state = CompositionState::Composing;
+                    Ok(Some(engine_result_from(composition)))
+                }
+            }
+            UserAction::Enter => {
+                if composition.suffix.is_empty() {
+                    ipc_service.hide_window()?;
+                    ipc_service.set_candidates(vec![])?;
+                    ipc_service.clear_text()?;
+                    reset_composition(composition);
+                    Ok(Some(EngineResult {
+                        spans: vec![],
+                        candidate_ui_state: CandidateUIState::Hide,
+                        next_input_mode: None,
+                    }))
+                } else {
+                    composition.raw_input.push_str("");
+                    composition.raw_input = composition
+                        .raw_input
+                        .chars()
+                        .skip(composition.corresponding_count as usize)
+                        .collect();
+                    ipc_service.shrink_text(composition.corresponding_count)?;
+                    let candidates = ipc_service.append_text(String::new())?;
+                    composition.selection_index = 0;
+                    composition.raw_hiragana = candidates.hiragana.clone();
+                    composition.corresponding_count = candidates.corresponding_count[0];
+                    composition.preview = candidates.texts[0].clone();
+                    composition.suffix = candidates.sub_texts[0].clone();
+                    composition.candidates = candidates;
+                    composition.state = CompositionState::Composing;
+                    Ok(Some(engine_result_from(composition)))
+                }
+            }
+            UserAction::Escape => {
+                ipc_service.remove_text()?;
+                ipc_service.hide_window()?;
+                ipc_service.set_candidates(vec![])?;
+                ipc_service.clear_text()?;
+                reset_composition(composition);
+                Ok(Some(EngineResult {
+                    spans: vec![],
+                    candidate_ui_state: CandidateUIState::Hide,
+                    next_input_mode: None,
+                }))
+            }
+            UserAction::Navigation(direction) => match direction {
+                Navigation::Right | Navigation::Left => {
+                    composition.state = CompositionState::Composing;
+                    Ok(Some(engine_result_from(composition)))
+                }
+                Navigation::Up => {
+                    let texts = composition.candidates.texts.clone();
+                    composition.selection_index = max(0, composition.selection_index - 1);
+                    composition.preview = texts[composition.selection_index].clone();
+                    composition.suffix = composition.candidates.sub_texts[composition.selection_index].clone();
+                    composition.raw_hiragana = composition.candidates.hiragana.clone();
+                    composition.corresponding_count = composition.candidates.corresponding_count[composition.selection_index];
+                    ipc_service.set_selection(composition.selection_index)?;
+                    Ok(Some(engine_result_from(composition)))
+                }
+                Navigation::Down => {
+                    let texts = composition.candidates.texts.clone();
+                    let len = texts.len() as i32;
+                    composition.selection_index = min(len - 1, composition.selection_index + 1);
+                    composition.preview = texts[composition.selection_index].clone();
+                    composition.suffix = composition.candidates.sub_texts[composition.selection_index].clone();
+                    composition.raw_hiragana = composition.candidates.hiragana.clone();
+                    composition.corresponding_count = composition.candidates.corresponding_count[composition.selection_index];
+                    ipc_service.set_selection(composition.selection_index)?;
+                    Ok(Some(engine_result_from(composition)))
+                }
+            },
+            UserAction::Space | UserAction::Tab => {
+                let texts = composition.candidates.texts.clone();
+                let len = texts.len() as i32;
+                composition.selection_index = min(len - 1, composition.selection_index + 1);
+                composition.preview = texts[composition.selection_index].clone();
+                composition.suffix = composition.candidates.sub_texts[composition.selection_index].clone();
+                composition.raw_hiragana = composition.candidates.hiragana.clone();
+                composition.corresponding_count = composition.candidates.corresponding_count[composition.selection_index];
+                ipc_service.set_selection(composition.selection_index)?;
+                Ok(Some(engine_result_from(composition)))
+            }
+            UserAction::ToggleInputMode => {
+                let next_mode = InputMode::Latin;
+                let mode_str = "A";
+                ipc_service.clear_text()?;
+                ipc_service.set_input_mode(mode_str)?;
+                ipc_service.hide_window()?;
+                ipc_service.set_candidates(vec![])?;
+                reset_composition(composition);
+                Ok(Some(EngineResult {
+                    spans: vec![],
+                    candidate_ui_state: CandidateUIState::Hide,
+                    next_input_mode: Some(next_mode),
+                }))
+            }
+            UserAction::Function(key) => {
+                let set_type = match key {
+                    Function::Six => SetTextType::Hiragana,
+                    Function::Seven => SetTextType::Katakana,
+                    Function::Eight => SetTextType::HalfKatakana,
+                    Function::Nine => SetTextType::FullLatin,
+                    Function::Ten => SetTextType::HalfLatin,
+                };
+                let text = match set_type {
+                    SetTextType::Hiragana => composition.raw_hiragana.clone(),
+                    SetTextType::Katakana => to_katakana(&composition.raw_hiragana),
+                    SetTextType::HalfKatakana => to_half_katakana(&composition.raw_hiragana),
+                    SetTextType::FullLatin => to_fullwidth(&composition.raw_input, true),
+                    SetTextType::HalfLatin => to_halfwidth(&composition.raw_input),
+                };
+                composition.preview = text.clone();
+                composition.suffix.clear();
+                Ok(Some(EngineResult {
+                    spans: vec![CompositionSpan::Composing { text }],
+                    candidate_ui_state: candidate_ui_from(composition),
+                    next_input_mode: None,
+                }))
+            }
+            _ => Ok(None),
+        },
+    }
+}
 
-        let text_service = self.try_borrow()?;
-        let mut composition = text_service.borrow_mut_composition()?;
-
-        composition.preview = preview.clone();
-        composition.state = transition;
-        composition.selection_index = selection_index;
-        composition.raw_input = raw_input.clone();
-        composition.raw_hiragana = raw_hiragana.clone();
-        composition.candidates = candidates;
-        composition.suffix = suffix.clone();
-        composition.corresponding_count = corresponding_count;
-
-        Ok(())
+pub fn reset(composition: &mut Composition) -> EngineResult {
+    if let Ok(mut ipc_service) = IMEState::get()
+        .map(|s| s.ipc_service.clone())
+        .unwrap_or(None)
+        .context("ipc_service is None")
+    {
+        let _ = ipc_service.hide_window();
+        let _ = ipc_service.set_candidates(vec![]);
+        let _ = ipc_service.clear_text();
+    }
+    reset_composition(composition);
+    EngineResult {
+        spans: vec![],
+        candidate_ui_state: CandidateUIState::Hide,
+        next_input_mode: None,
     }
 }

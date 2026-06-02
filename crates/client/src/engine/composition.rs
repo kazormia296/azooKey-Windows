@@ -193,8 +193,6 @@ pub fn process_key(
                 };
                 converter.clear_text()?;
                 candidate_window.set_input_mode(mode_str)?;
-                candidate_window.hide_window()?;
-                candidate_window.set_candidates(vec![])?;
                 Ok(Some(EngineResult {
                     spans: vec![],
                     candidate_ui_state: CandidateUIState::Hide,
@@ -214,8 +212,6 @@ pub fn process_key(
             UserAction::Backspace => {
                 if composition.preview.chars().count() <= 1 {
                     converter.remove_text()?;
-                    candidate_window.hide_window()?;
-                    candidate_window.set_candidates(vec![])?;
                     converter.clear_text()?;
                     reset_composition(composition);
                     Ok(Some(EngineResult {
@@ -236,8 +232,6 @@ pub fn process_key(
             }
             UserAction::Enter => {
                 if composition.suffix.is_empty() {
-                    candidate_window.hide_window()?;
-                    candidate_window.set_candidates(vec![])?;
                     converter.clear_text()?;
                     reset_composition(composition);
                     Ok(Some(EngineResult {
@@ -257,8 +251,6 @@ pub fn process_key(
             }
             UserAction::Escape => {
                 converter.remove_text()?;
-                candidate_window.hide_window()?;
-                candidate_window.set_candidates(vec![])?;
                 converter.clear_text()?;
                 reset_composition(composition);
                 Ok(Some(EngineResult {
@@ -289,8 +281,6 @@ pub fn process_key(
                 let mode_str = "A";
                 converter.clear_text()?;
                 candidate_window.set_input_mode(mode_str)?;
-                candidate_window.hide_window()?;
-                candidate_window.set_candidates(vec![])?;
                 reset_composition(composition);
                 Ok(Some(EngineResult {
                     spans: vec![],
@@ -316,8 +306,6 @@ pub fn process_key(
             UserAction::Backspace => {
                 if composition.preview.chars().count() <= 1 {
                     converter.remove_text()?;
-                    candidate_window.hide_window()?;
-                    candidate_window.set_candidates(vec![])?;
                     converter.clear_text()?;
                     reset_composition(composition);
                     Ok(Some(EngineResult {
@@ -339,8 +327,6 @@ pub fn process_key(
             }
             UserAction::Enter => {
                 if composition.suffix.is_empty() {
-                    candidate_window.hide_window()?;
-                    candidate_window.set_candidates(vec![])?;
                     converter.clear_text()?;
                     reset_composition(composition);
                     Ok(Some(EngineResult {
@@ -360,8 +346,6 @@ pub fn process_key(
             }
             UserAction::Escape => {
                 converter.remove_text()?;
-                candidate_window.hide_window()?;
-                candidate_window.set_candidates(vec![])?;
                 converter.clear_text()?;
                 reset_composition(composition);
                 Ok(Some(EngineResult {
@@ -378,14 +362,12 @@ pub fn process_key(
                 Navigation::Up => {
                     let index = composition.selection_index.saturating_sub(1);
                     composition.select_at(index);
-                    candidate_window.set_selection(index as i32)?;
                     Ok(Some(engine_result_from(composition)))
                 }
                 Navigation::Down => {
                     let len = composition.candidates.texts.len();
                     let index = min(len - 1, composition.selection_index + 1);
                     composition.select_at(index);
-                    candidate_window.set_selection(index as i32)?;
                     Ok(Some(engine_result_from(composition)))
                 }
             },
@@ -393,7 +375,6 @@ pub fn process_key(
                 let len = composition.candidates.texts.len();
                 let index = min(len - 1, composition.selection_index + 1);
                 composition.select_at(index);
-                candidate_window.set_selection(index as i32)?;
                 Ok(Some(engine_result_from(composition)))
             }
             UserAction::ToggleInputMode => {
@@ -401,8 +382,6 @@ pub fn process_key(
                 let mode_str = "A";
                 converter.clear_text()?;
                 candidate_window.set_input_mode(mode_str)?;
-                candidate_window.hide_window()?;
-                candidate_window.set_candidates(vec![])?;
                 reset_composition(composition);
                 Ok(Some(EngineResult {
                     spans: vec![],
@@ -418,10 +397,6 @@ pub fn process_key(
 
 pub fn reset(composition: &mut Composition) -> EngineResult {
     if let Ok(state) = IMEState::get() {
-        if let Some(mut cw) = state.candidate_window.clone() {
-            let _ = cw.hide_window();
-            let _ = cw.set_candidates(vec![]);
-        }
         if let Some(mut conv) = state.converter.clone() {
             let _ = conv.clear_text();
         }

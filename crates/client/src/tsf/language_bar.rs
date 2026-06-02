@@ -85,15 +85,8 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
         {
             let state = IMEState::get()?;
             let mut converter = state.converter.clone().context("converter is None")?;
-            let mut candidate_window = state.candidate_window.clone().context("candidate_window is None")?;
             drop(state);
             converter.clear_text()?;
-            candidate_window.set_input_mode(match &mode {
-                InputMode::Latin => "A",
-                InputMode::Kana => "あ",
-            })?;
-            candidate_window.hide_window()?;
-            candidate_window.set_candidates(vec![])?;
         }
 
         let prev_result = {

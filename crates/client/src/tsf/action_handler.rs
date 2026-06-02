@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::engine::{
     composition,
-    engine_result::{CompositionSpan, EngineResult},
+    engine_result::{CandidateUIState, CompositionSpan, EngineResult},
     state::IMEState,
 };
 
@@ -88,9 +88,29 @@ impl TextService {
             (false, false) => {}
         }
 
+        if let Some(mut candidate_window) = IMEState::get()?.candidate_window.clone() {
+            match &next.candidate_ui_state {
+                CandidateUIState::Hide => {
+                    let _ = candidate_window.hide_window();
+                    let _ = candidate_window.set_candidates(vec![]);
+                }
+                CandidateUIState::Show { candidates, index } => {
+                    candidate_window.set_candidates(candidates.clone())?;
+                    candidate_window.set_selection(*index as i32)?;
+                }
+            }
+        }
+
         if let Some(mode) = &next.next_input_mode {
             let mut ime_state = IMEState::get()?;
             ime_state.input_mode = mode.clone();
+            if let Some(mut candidate_window) = ime_state.candidate_window.clone() {
+                let mode_str = match mode {
+                    crate::engine::input_mode::InputMode::Latin => "A",
+                    crate::engine::input_mode::InputMode::Kana => "あ",
+                };
+                let _ = candidate_window.set_input_mode(mode_str);
+            }
             self.update_lang_bar()?;
         }
 

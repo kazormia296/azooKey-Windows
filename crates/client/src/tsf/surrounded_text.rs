@@ -186,11 +186,11 @@ impl TextService {
                 return Ok(());
             };
 
-            let Some(mut ipc_service) = IMEState::get()?.ipc_service.clone() else {
+            let Some(mut converter) = IMEState::get()?.converter.clone() else {
                 return Ok(());
             };
 
-            ipc_service.set_context(preceding_text)?;
+            converter.set_context(preceding_text)?;
 
             Ok(())
         })();

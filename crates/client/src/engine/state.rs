@@ -6,11 +6,15 @@ use std::{
 
 use windows::{core::GUID, Win32::UI::TextServices::ITfContext};
 
-use super::{input_mode::InputMode, ipc_service::IPCService};
+use super::{
+    input_mode::InputMode,
+    ipc_service::{CandidateWindow, Converter},
+};
 
 #[derive(Debug)]
 pub struct IMEState {
-    pub ipc_service: Option<IPCService>,
+    pub converter: Option<Converter>,
+    pub candidate_window: Option<CandidateWindow>,
     pub input_mode: InputMode,
     pub cookies: HashMap<GUID, u32>,
     // ThreadMgrEventSinkとかTextLayoutSinkの実装に使う
@@ -22,7 +26,8 @@ pub struct IMEState {
 pub static IME_STATE: LazyLock<Mutex<IMEState>> = LazyLock::new(|| {
     tracing::debug!("Creating IMEState");
     Mutex::new(IMEState {
-        ipc_service: None,
+        converter: None,
+        candidate_window: None,
         input_mode: InputMode::default(),
         cookies: HashMap::new(),
         context: None,

@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    engine::{ipc_service, state::IMEState},
+    engine::{
+        ipc_service::{Converter, CandidateWindow},
+        state::IMEState,
+    },
     globals::{DllModule, GUID_DISPLAY_ATTRIBUTE},
 };
 
@@ -31,15 +34,21 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
         let mut dll_instance = DllModule::get()?;
         dll_instance.add_ref();
 
-        // initialize ipc_service
-        if let Ok(mut ipc_service) = ipc_service::IPCService::new() {
-            ipc_service.append_text("".to_string())?;
-            IMEState::get()?.ipc_service = Some(ipc_service);
+        // initialize converter and candidate window
+        if let Ok(mut converter) = Converter::new() {
+            converter.append_text("".to_string())?;
+            IMEState::get()?.converter = Some(converter);
         } else {
             // Activate() should not return an error
             // if Activate() returns an error, the icon of the previously activated TextService will be displayed, which may confuse the user
-            tracing::error!("Failed to initialize IPC service");
+            tracing::error!("Failed to initialize Converter");
             return Ok(());
+        }
+
+        if let Ok(candidate_window) = CandidateWindow::new() {
+            IMEState::get()?.candidate_window = Some(candidate_window);
+        } else {
+            tracing::error!("Failed to initialize CandidateWindow");
         }
 
         let mut text_service = self.try_borrow_mut()?;

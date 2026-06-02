@@ -322,7 +322,7 @@ impl TextService {
                             let view = context.GetActiveView()?;
                             let range = tip_composition.GetRange()?;
 
-                            let Some(mut ipc_service) = IMEState::get()?.ipc_service.clone()
+                            let Some(mut candidate_window) = IMEState::get()?.candidate_window.clone()
                             else {
                                 return Ok(());
                             };
@@ -331,7 +331,7 @@ impl TextService {
                             let mut clipped = false.into();
                             view.GetTextExt(cookie, &range, &mut rect, &mut clipped)?;
 
-                            ipc_service.set_window_position(
+                            candidate_window.set_window_position(
                                 rect.top,
                                 rect.left,
                                 rect.bottom,

@@ -1,9 +1,10 @@
-use std::cmp::{max, min};
+use std::cmp::min;
 
 use crate::{engine::user_action::UserAction, extension::VKeyExt as _};
 use windows::Win32::{
     Foundation::WPARAM,
     UI::Input::KeyboardAndMouse::VK_CONTROL,
+    UI::TextServices::ITfComposition,
 };
 
 use super::{
@@ -40,12 +41,70 @@ pub struct Composition {
 
     // 選択している候補のindex
     // TODO: candidate_indexのほうがよくないか
-    pub selection_index: usizee,
+    pub selection_index: usize,
     // 候補のリスト、これはText Serviceで持つべきものなのか？
     pub candidates: Candidates,
 
     pub state: CompositionState,
     pub tip_composition: Option<ITfComposition>,
+}
+
+impl Composition {
+    fn apply_candidates(&mut self, candidates: &Candidates, index: usize) {
+        self.raw_hiragana = candidates.hiragana.clone();
+        self.corresponding_count = candidates.corresponding_count[index];
+        self.preview = candidates.texts[index].clone();
+        self.suffix = candidates.sub_texts[index].clone();
+        self.candidates = candidates.clone();
+        self.selection_index = index;
+    }
+
+    fn shrink_raw_input(&mut self, count: usize) {
+        self.raw_input = self.raw_input.chars().skip(count).collect();
+    }
+
+    fn select_at(&mut self, index: usize) {
+        self.selection_index = index;
+        self.preview = self.candidates.texts[index].clone();
+        self.suffix = self.candidates.sub_texts[index].clone();
+        self.raw_hiragana = self.candidates.hiragana.clone();
+        self.corresponding_count = self.candidates.corresponding_count[index];
+    }
+}
+
+fn into_char_text(action: &UserAction) -> (char, String) {
+    match action {
+        UserAction::Input(c) => (*c, to_fullwidth(&c.to_string(), false)),
+        UserAction::Number(n) => {
+            let c = char::from(*n as u8 + b'0');
+            (c, to_fullwidth(&n.to_string(), false))
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn process_function(composition: &mut Composition, key: &Function) -> EngineResult {
+    let set_type = match key {
+        Function::Six => SetTextType::Hiragana,
+        Function::Seven => SetTextType::Katakana,
+        Function::Eight => SetTextType::HalfKatakana,
+        Function::Nine => SetTextType::FullLatin,
+        Function::Ten => SetTextType::HalfLatin,
+    };
+    let text = match set_type {
+        SetTextType::Hiragana => composition.raw_hiragana.clone(),
+        SetTextType::Katakana => to_katakana(&composition.raw_hiragana),
+        SetTextType::HalfKatakana => to_half_katakana(&composition.raw_hiragana),
+        SetTextType::FullLatin => to_fullwidth(&composition.raw_input, true),
+        SetTextType::HalfLatin => to_halfwidth(&composition.raw_input),
+    };
+    composition.preview = text.clone();
+    composition.suffix.clear();
+    EngineResult {
+        spans: vec![CompositionSpan::Composing { text }],
+        candidate_ui_state: candidate_ui_from(composition),
+        next_input_mode: None,
+    }
 }
 
 fn engine_result_from(composition: &Composition) -> EngineResult {
@@ -108,36 +167,18 @@ pub fn process_key(
     }
 
     let action = UserAction::try_from(wparam.0)?;
-    let mut ipc_service = IMEState::get()?
-        .ipc_service
-        .clone()
-        .context("ipc_service is None")?;
+    let state = IMEState::get()?;
+    let mut converter = state.converter.clone().context("converter is None")?;
+    let mut candidate_window = state.candidate_window.clone().context("candidate_window is None")?;
+    drop(state);
 
     match composition.state {
         CompositionState::None => match action {
-            UserAction::Input(char) if *input_mode == InputMode::Kana => {
-                let text = to_fullwidth(&char.to_string(), false);
-                let candidates = ipc_service.append_text(text)?;
-                composition.raw_input.push(char);
-                composition.raw_hiragana = candidates.hiragana.clone();
-                composition.corresponding_count = candidates.corresponding_count[0];
-                composition.preview = candidates.texts[0].clone();
-                composition.suffix = candidates.sub_texts[0].clone();
-                composition.candidates = candidates;
-                composition.selection_index = 0;
-                composition.state = CompositionState::Composing;
-                Ok(Some(engine_result_from(composition)))
-            }
-            UserAction::Number(number) if *input_mode == InputMode::Kana => {
-                let text = to_fullwidth(&number.to_string(), false);
-                let candidates = ipc_service.append_text(text)?;
-                composition.raw_input.push(char::from(number as u8 + b'0'));
-                composition.raw_hiragana = candidates.hiragana.clone();
-                composition.corresponding_count = candidates.corresponding_count[0];
-                composition.preview = candidates.texts[0].clone();
-                composition.suffix = candidates.sub_texts[0].clone();
-                composition.candidates = candidates;
-                composition.selection_index = 0;
+            UserAction::Input(_) | UserAction::Number(_) if *input_mode == InputMode::Kana => {
+                let (c, text) = into_char_text(&action);
+                composition.raw_input.push(c);
+                let candidates = converter.append_text(text)?;
+                composition.apply_candidates(&candidates, 0);
                 composition.state = CompositionState::Composing;
                 Ok(Some(engine_result_from(composition)))
             }
@@ -150,10 +191,10 @@ pub fn process_key(
                     InputMode::Latin => "A",
                     InputMode::Kana => "あ",
                 };
-                ipc_service.clear_text()?;
-                ipc_service.set_input_mode(mode_str)?;
-                ipc_service.hide_window()?;
-                ipc_service.set_candidates(vec![])?;
+                converter.clear_text()?;
+                candidate_window.set_input_mode(mode_str)?;
+                candidate_window.hide_window()?;
+                candidate_window.set_candidates(vec![])?;
                 Ok(Some(EngineResult {
                     spans: vec![],
                     candidate_ui_state: CandidateUIState::Hide,
@@ -163,34 +204,19 @@ pub fn process_key(
             _ => Ok(None),
         },
         CompositionState::Composing => match action {
-            UserAction::Input(char) => {
-                let text = to_fullwidth(&char.to_string(), false);
-                composition.raw_input.push(char);
-                let candidates = ipc_service.append_text(text)?;
-                composition.raw_hiragana = candidates.hiragana.clone();
-                composition.corresponding_count = candidates.corresponding_count[composition.selection_index];
-                composition.preview = candidates.texts[composition.selection_index].clone();
-                composition.suffix = candidates.sub_texts[composition.selection_index].clone();
-                composition.candidates = candidates;
-                Ok(Some(engine_result_from(composition)))
-            }
-            UserAction::Number(number) => {
-                let text = to_fullwidth(&number.to_string(), false);
-                composition.raw_input.push(char::from(number as u8 + b'0'));
-                let candidates = ipc_service.append_text(text)?;
-                composition.raw_hiragana = candidates.hiragana.clone();
-                composition.corresponding_count = candidates.corresponding_count[composition.selection_index];
-                composition.preview = candidates.texts[composition.selection_index].clone();
-                composition.suffix = candidates.sub_texts[composition.selection_index].clone();
-                composition.candidates = candidates;
+            UserAction::Input(_) | UserAction::Number(_) => {
+                let (c, text) = into_char_text(&action);
+                composition.raw_input.push(c);
+                let candidates = converter.append_text(text)?;
+                composition.apply_candidates(&candidates, composition.selection_index);
                 Ok(Some(engine_result_from(composition)))
             }
             UserAction::Backspace => {
                 if composition.preview.chars().count() <= 1 {
-                    ipc_service.remove_text()?;
-                    ipc_service.hide_window()?;
-                    ipc_service.set_candidates(vec![])?;
-                    ipc_service.clear_text()?;
+                    converter.remove_text()?;
+                    candidate_window.hide_window()?;
+                    candidate_window.set_candidates(vec![])?;
+                    converter.clear_text()?;
                     reset_composition(composition);
                     Ok(Some(EngineResult {
                         spans: vec![],
@@ -198,40 +224,21 @@ pub fn process_key(
                         next_input_mode: None,
                     }))
                 } else {
-                    let candidates = ipc_service.remove_text()?;
-                    let empty = String::new();
-                    let text = candidates
-                        .texts
-                        .get(composition.selection_index)
-                        .cloned()
-                        .unwrap_or(empty.clone());
-                    let sub_text = candidates
-                        .sub_texts
-                        .get(composition.selection_index)
-                        .cloned()
-                        .unwrap_or(empty);
-                    composition.raw_hiragana = candidates.hiragana.clone();
-                    composition.corresponding_count = candidates
-                        .corresponding_count
-                        .get(composition.selection_index)
-                        .cloned()
-                        .unwrap_or(0);
+                    let candidates = converter.remove_text()?;
+                    composition.apply_candidates(&candidates, composition.selection_index);
                     composition.raw_input = composition
                         .raw_input
                         .chars()
                         .take(composition.corresponding_count as usize)
                         .collect();
-                    composition.preview = text;
-                    composition.suffix = sub_text;
-                    composition.candidates = candidates;
                     Ok(Some(engine_result_from(composition)))
                 }
             }
             UserAction::Enter => {
                 if composition.suffix.is_empty() {
-                    ipc_service.hide_window()?;
-                    ipc_service.set_candidates(vec![])?;
-                    ipc_service.clear_text()?;
+                    candidate_window.hide_window()?;
+                    candidate_window.set_candidates(vec![])?;
+                    converter.clear_text()?;
                     reset_composition(composition);
                     Ok(Some(EngineResult {
                         spans: vec![],
@@ -239,30 +246,20 @@ pub fn process_key(
                         next_input_mode: None,
                     }))
                 } else {
-                    let text = String::new();
-                    composition.raw_input.push_str(&text);
-                    composition.raw_input = composition
-                        .raw_input
-                        .chars()
-                        .skip(composition.corresponding_count as usize)
-                        .collect();
-                    ipc_service.shrink_text(composition.corresponding_count)?;
-                    let candidates = ipc_service.append_text(text)?;
-                    composition.selection_index = 0;
-                    composition.raw_hiragana = candidates.hiragana.clone();
-                    composition.corresponding_count = candidates.corresponding_count[0];
-                    composition.preview = candidates.texts[0].clone();
-                    composition.suffix = candidates.sub_texts[0].clone();
-                    composition.candidates = candidates;
+                    let count = composition.corresponding_count;
+                    composition.shrink_raw_input(count as usize);
+                    converter.shrink_text(count)?;
+                    let candidates = converter.append_text(String::new())?;
+                    composition.apply_candidates(&candidates, 0);
                     composition.state = CompositionState::Composing;
                     Ok(Some(engine_result_from(composition)))
                 }
             }
             UserAction::Escape => {
-                ipc_service.remove_text()?;
-                ipc_service.hide_window()?;
-                ipc_service.set_candidates(vec![])?;
-                ipc_service.clear_text()?;
+                converter.remove_text()?;
+                candidate_window.hide_window()?;
+                candidate_window.set_candidates(vec![])?;
+                converter.clear_text()?;
                 reset_composition(composition);
                 Ok(Some(EngineResult {
                     spans: vec![],
@@ -290,10 +287,10 @@ pub fn process_key(
             UserAction::ToggleInputMode => {
                 let next_mode = InputMode::Latin;
                 let mode_str = "A";
-                ipc_service.clear_text()?;
-                ipc_service.set_input_mode(mode_str)?;
-                ipc_service.hide_window()?;
-                ipc_service.set_candidates(vec![])?;
+                converter.clear_text()?;
+                candidate_window.set_input_mode(mode_str)?;
+                candidate_window.hide_window()?;
+                candidate_window.set_candidates(vec![])?;
                 reset_composition(composition);
                 Ok(Some(EngineResult {
                     spans: vec![],
@@ -301,78 +298,27 @@ pub fn process_key(
                     next_input_mode: Some(next_mode),
                 }))
             }
-            UserAction::Function(key) => {
-                let set_type = match key {
-                    Function::Six => SetTextType::Hiragana,
-                    Function::Seven => SetTextType::Katakana,
-                    Function::Eight => SetTextType::HalfKatakana,
-                    Function::Nine => SetTextType::FullLatin,
-                    Function::Ten => SetTextType::HalfLatin,
-                };
-                let text = match set_type {
-                    SetTextType::Hiragana => composition.raw_hiragana.clone(),
-                    SetTextType::Katakana => to_katakana(&composition.raw_hiragana),
-                    SetTextType::HalfKatakana => to_half_katakana(&composition.raw_hiragana),
-                    SetTextType::FullLatin => to_fullwidth(&composition.raw_input, true),
-                    SetTextType::HalfLatin => to_halfwidth(&composition.raw_input),
-                };
-                composition.preview = text.clone();
-                composition.suffix.clear();
-                Ok(Some(EngineResult {
-                    spans: vec![CompositionSpan::Composing { text }],
-                    candidate_ui_state: candidate_ui_from(composition),
-                    next_input_mode: None,
-                }))
-            }
+            UserAction::Function(key) => Ok(Some(process_function(composition, &key))),
             _ => Ok(None),
         },
         CompositionState::Previewing | CompositionState::Selecting => match action {
-            UserAction::Input(char) => {
-                composition.raw_input.push(char);
-                let text = to_fullwidth(&char.to_string(), false);
+            UserAction::Input(_) | UserAction::Number(_) => {
+                let (c, text) = into_char_text(&action);
                 let count = composition.corresponding_count;
-                composition.raw_input = composition
-                    .raw_input
-                    .chars()
-                    .skip(count as usize)
-                    .collect();
-                ipc_service.shrink_text(count)?;
-                let candidates = ipc_service.append_text(text)?;
-                composition.selection_index = 0;
-                composition.raw_hiragana = candidates.hiragana.clone();
-                composition.corresponding_count = candidates.corresponding_count[0];
-                composition.preview = candidates.texts[0].clone();
-                composition.suffix = candidates.sub_texts[0].clone();
-                composition.candidates = candidates;
-                composition.state = CompositionState::Composing;
-                Ok(Some(engine_result_from(composition)))
-            }
-            UserAction::Number(number) => {
-                composition.raw_input.push(char::from(number as u8 + b'0'));
-                let text = to_fullwidth(&number.to_string(), false);
-                let count = composition.corresponding_count;
-                composition.raw_input = composition
-                    .raw_input
-                    .chars()
-                    .skip(count as usize)
-                    .collect();
-                ipc_service.shrink_text(count)?;
-                let candidates = ipc_service.append_text(text)?;
-                composition.selection_index = 0;
-                composition.raw_hiragana = candidates.hiragana.clone();
-                composition.corresponding_count = candidates.corresponding_count[0];
-                composition.preview = candidates.texts[0].clone();
-                composition.suffix = candidates.sub_texts[0].clone();
-                composition.candidates = candidates;
+                composition.raw_input.push(c);
+                composition.shrink_raw_input(count as usize);
+                converter.shrink_text(count)?;
+                let candidates = converter.append_text(text)?;
+                composition.apply_candidates(&candidates, 0);
                 composition.state = CompositionState::Composing;
                 Ok(Some(engine_result_from(composition)))
             }
             UserAction::Backspace => {
                 if composition.preview.chars().count() <= 1 {
-                    ipc_service.remove_text()?;
-                    ipc_service.hide_window()?;
-                    ipc_service.set_candidates(vec![])?;
-                    ipc_service.clear_text()?;
+                    converter.remove_text()?;
+                    candidate_window.hide_window()?;
+                    candidate_window.set_candidates(vec![])?;
+                    converter.clear_text()?;
                     reset_composition(composition);
                     Ok(Some(EngineResult {
                         spans: vec![],
@@ -380,41 +326,22 @@ pub fn process_key(
                         next_input_mode: None,
                     }))
                 } else {
-                    let candidates = ipc_service.remove_text()?;
-                    let empty = String::new();
-                    let text = candidates
-                        .texts
-                        .get(composition.selection_index)
-                        .cloned()
-                        .unwrap_or(empty.clone());
-                    let sub_text = candidates
-                        .sub_texts
-                        .get(composition.selection_index)
-                        .cloned()
-                        .unwrap_or(empty);
-                    composition.raw_hiragana = candidates.hiragana.clone();
-                    composition.corresponding_count = candidates
-                        .corresponding_count
-                        .get(composition.selection_index)
-                        .cloned()
-                        .unwrap_or(0);
+                    let candidates = converter.remove_text()?;
+                    composition.apply_candidates(&candidates, composition.selection_index);
                     composition.raw_input = composition
                         .raw_input
                         .chars()
                         .take(composition.corresponding_count as usize)
                         .collect();
-                    composition.preview = text;
-                    composition.suffix = sub_text;
-                    composition.candidates = candidates;
                     composition.state = CompositionState::Composing;
                     Ok(Some(engine_result_from(composition)))
                 }
             }
             UserAction::Enter => {
                 if composition.suffix.is_empty() {
-                    ipc_service.hide_window()?;
-                    ipc_service.set_candidates(vec![])?;
-                    ipc_service.clear_text()?;
+                    candidate_window.hide_window()?;
+                    candidate_window.set_candidates(vec![])?;
+                    converter.clear_text()?;
                     reset_composition(composition);
                     Ok(Some(EngineResult {
                         spans: vec![],
@@ -422,29 +349,20 @@ pub fn process_key(
                         next_input_mode: None,
                     }))
                 } else {
-                    composition.raw_input.push_str("");
-                    composition.raw_input = composition
-                        .raw_input
-                        .chars()
-                        .skip(composition.corresponding_count as usize)
-                        .collect();
-                    ipc_service.shrink_text(composition.corresponding_count)?;
-                    let candidates = ipc_service.append_text(String::new())?;
-                    composition.selection_index = 0;
-                    composition.raw_hiragana = candidates.hiragana.clone();
-                    composition.corresponding_count = candidates.corresponding_count[0];
-                    composition.preview = candidates.texts[0].clone();
-                    composition.suffix = candidates.sub_texts[0].clone();
-                    composition.candidates = candidates;
+                    let count = composition.corresponding_count;
+                    composition.shrink_raw_input(count as usize);
+                    converter.shrink_text(count)?;
+                    let candidates = converter.append_text(String::new())?;
+                    composition.apply_candidates(&candidates, 0);
                     composition.state = CompositionState::Composing;
                     Ok(Some(engine_result_from(composition)))
                 }
             }
             UserAction::Escape => {
-                ipc_service.remove_text()?;
-                ipc_service.hide_window()?;
-                ipc_service.set_candidates(vec![])?;
-                ipc_service.clear_text()?;
+                converter.remove_text()?;
+                candidate_window.hide_window()?;
+                candidate_window.set_candidates(vec![])?;
+                converter.clear_text()?;
                 reset_composition(composition);
                 Ok(Some(EngineResult {
                     spans: vec![],
@@ -458,45 +376,33 @@ pub fn process_key(
                     Ok(Some(engine_result_from(composition)))
                 }
                 Navigation::Up => {
-                    let texts = composition.candidates.texts.clone();
-                    composition.selection_index = max(0, composition.selection_index - 1);
-                    composition.preview = texts[composition.selection_index].clone();
-                    composition.suffix = composition.candidates.sub_texts[composition.selection_index].clone();
-                    composition.raw_hiragana = composition.candidates.hiragana.clone();
-                    composition.corresponding_count = composition.candidates.corresponding_count[composition.selection_index];
-                    ipc_service.set_selection(composition.selection_index)?;
+                    let index = composition.selection_index.saturating_sub(1);
+                    composition.select_at(index);
+                    candidate_window.set_selection(index as i32)?;
                     Ok(Some(engine_result_from(composition)))
                 }
                 Navigation::Down => {
-                    let texts = composition.candidates.texts.clone();
-                    let len = texts.len() as i32;
-                    composition.selection_index = min(len - 1, composition.selection_index + 1);
-                    composition.preview = texts[composition.selection_index].clone();
-                    composition.suffix = composition.candidates.sub_texts[composition.selection_index].clone();
-                    composition.raw_hiragana = composition.candidates.hiragana.clone();
-                    composition.corresponding_count = composition.candidates.corresponding_count[composition.selection_index];
-                    ipc_service.set_selection(composition.selection_index)?;
+                    let len = composition.candidates.texts.len();
+                    let index = min(len - 1, composition.selection_index + 1);
+                    composition.select_at(index);
+                    candidate_window.set_selection(index as i32)?;
                     Ok(Some(engine_result_from(composition)))
                 }
             },
             UserAction::Space | UserAction::Tab => {
-                let texts = composition.candidates.texts.clone();
-                let len = texts.len() as i32;
-                composition.selection_index = min(len - 1, composition.selection_index + 1);
-                composition.preview = texts[composition.selection_index].clone();
-                composition.suffix = composition.candidates.sub_texts[composition.selection_index].clone();
-                composition.raw_hiragana = composition.candidates.hiragana.clone();
-                composition.corresponding_count = composition.candidates.corresponding_count[composition.selection_index];
-                ipc_service.set_selection(composition.selection_index)?;
+                let len = composition.candidates.texts.len();
+                let index = min(len - 1, composition.selection_index + 1);
+                composition.select_at(index);
+                candidate_window.set_selection(index as i32)?;
                 Ok(Some(engine_result_from(composition)))
             }
             UserAction::ToggleInputMode => {
                 let next_mode = InputMode::Latin;
                 let mode_str = "A";
-                ipc_service.clear_text()?;
-                ipc_service.set_input_mode(mode_str)?;
-                ipc_service.hide_window()?;
-                ipc_service.set_candidates(vec![])?;
+                converter.clear_text()?;
+                candidate_window.set_input_mode(mode_str)?;
+                candidate_window.hide_window()?;
+                candidate_window.set_candidates(vec![])?;
                 reset_composition(composition);
                 Ok(Some(EngineResult {
                     spans: vec![],
@@ -504,43 +410,21 @@ pub fn process_key(
                     next_input_mode: Some(next_mode),
                 }))
             }
-            UserAction::Function(key) => {
-                let set_type = match key {
-                    Function::Six => SetTextType::Hiragana,
-                    Function::Seven => SetTextType::Katakana,
-                    Function::Eight => SetTextType::HalfKatakana,
-                    Function::Nine => SetTextType::FullLatin,
-                    Function::Ten => SetTextType::HalfLatin,
-                };
-                let text = match set_type {
-                    SetTextType::Hiragana => composition.raw_hiragana.clone(),
-                    SetTextType::Katakana => to_katakana(&composition.raw_hiragana),
-                    SetTextType::HalfKatakana => to_half_katakana(&composition.raw_hiragana),
-                    SetTextType::FullLatin => to_fullwidth(&composition.raw_input, true),
-                    SetTextType::HalfLatin => to_halfwidth(&composition.raw_input),
-                };
-                composition.preview = text.clone();
-                composition.suffix.clear();
-                Ok(Some(EngineResult {
-                    spans: vec![CompositionSpan::Composing { text }],
-                    candidate_ui_state: candidate_ui_from(composition),
-                    next_input_mode: None,
-                }))
-            }
+            UserAction::Function(key) => Ok(Some(process_function(composition, &key))),
             _ => Ok(None),
         },
     }
 }
 
 pub fn reset(composition: &mut Composition) -> EngineResult {
-    if let Ok(mut ipc_service) = IMEState::get()
-        .map(|s| s.ipc_service.clone())
-        .unwrap_or(None)
-        .context("ipc_service is None")
-    {
-        let _ = ipc_service.hide_window();
-        let _ = ipc_service.set_candidates(vec![]);
-        let _ = ipc_service.clear_text();
+    if let Ok(state) = IMEState::get() {
+        if let Some(mut cw) = state.candidate_window.clone() {
+            let _ = cw.hide_window();
+            let _ = cw.set_candidates(vec![]);
+        }
+        if let Some(mut conv) = state.converter.clone() {
+            let _ = conv.clear_text();
+        }
     }
     reset_composition(composition);
     EngineResult {

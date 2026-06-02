@@ -83,17 +83,17 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
         };
 
         {
-            let mut ipc_service = IMEState::get()?
-                .ipc_service
-                .clone()
-                .context("ipc_service is None")?;
-            ipc_service.clear_text()?;
-            ipc_service.set_input_mode(match &mode {
+            let state = IMEState::get()?;
+            let mut converter = state.converter.clone().context("converter is None")?;
+            let mut candidate_window = state.candidate_window.clone().context("candidate_window is None")?;
+            drop(state);
+            converter.clear_text()?;
+            candidate_window.set_input_mode(match &mode {
                 InputMode::Latin => "A",
                 InputMode::Kana => "あ",
             })?;
-            ipc_service.hide_window()?;
-            ipc_service.set_candidates(vec![])?;
+            candidate_window.hide_window()?;
+            candidate_window.set_candidates(vec![])?;
         }
 
         let prev_result = {

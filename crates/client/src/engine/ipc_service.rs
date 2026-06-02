@@ -9,19 +9,6 @@ use tonic::transport::Endpoint;
 use tower::service_fn;
 use windows::Win32::Foundation::ERROR_PIPE_BUSY;
 
-// connect to kkc server
-#[derive(Debug, Clone)]
-pub struct IPCService {
-    // kkc server client
-    azookey_client: AzookeyServiceClient<tonic::transport::channel::Channel>,
-    // candidate window server client
-    window_client: WindowServiceClient<tonic::transport::channel::Channel>,
-    runtime: Arc<tokio::runtime::Runtime>,
-}
-
-// ロジックの切り出しをおこなっておくべき
-// ポートの利用について少し考える
-
 #[derive(Debug, Clone, Default)]
 pub struct Candidates {
     pub texts: Vec<String>,
@@ -30,11 +17,23 @@ pub struct Candidates {
     pub corresponding_count: Vec<i32>,
 }
 
-impl IPCService {
+#[derive(Debug, Clone)]
+pub struct Converter {
+    client: AzookeyServiceClient<tonic::transport::channel::Channel>,
+    runtime: Arc<tokio::runtime::Runtime>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CandidateWindow {
+    client: WindowServiceClient<tonic::transport::channel::Channel>,
+    runtime: Arc<tokio::runtime::Runtime>,
+}
+
+impl Converter {
     pub fn new() -> Result<Self> {
         let runtime = tokio::runtime::Runtime::new()?;
 
-        let server_channel = runtime.block_on(
+        let channel = runtime.block_on(
             Endpoint::try_from("http://[::]:50051")?.connect_with_connector(service_fn(
                 |_| async {
                     let client = loop {
@@ -52,7 +51,150 @@ impl IPCService {
             )),
         )?;
 
-        let ui_channel = runtime.block_on(
+        let client = AzookeyServiceClient::new(channel);
+        tracing::debug!("Connected to converter server: {:?}", client);
+
+        Ok(Self {
+            client,
+            runtime: Arc::new(runtime),
+        })
+    }
+
+    #[tracing::instrument]
+    pub fn append_text(&mut self, text: String) -> anyhow::Result<Candidates> {
+        let request = tonic::Request::new(shared::proto::AppendTextRequest {
+            text_to_append: text,
+        });
+
+        let response = self
+            .runtime
+            .clone()
+            .block_on(self.client.append_text(request))?;
+        let composing_text = response.into_inner().composing_text;
+
+        let candidates = if let Some(composing_text) = composing_text {
+            Candidates {
+                texts: composing_text
+                    .suggestions
+                    .iter()
+                    .map(|s| s.text.clone())
+                    .collect(),
+                sub_texts: composing_text
+                    .suggestions
+                    .iter()
+                    .map(|s| s.subtext.clone())
+                    .collect(),
+                hiragana: composing_text.hiragana,
+                corresponding_count: composing_text
+                    .suggestions
+                    .iter()
+                    .map(|s| s.corresponding_count)
+                    .collect(),
+            }
+        } else {
+            anyhow::bail!("composing_text is None");
+        };
+
+        Ok(candidates)
+    }
+
+    #[tracing::instrument]
+    pub fn remove_text(&mut self) -> anyhow::Result<Candidates> {
+        let request = tonic::Request::new(shared::proto::RemoveTextRequest {});
+        let response = self
+            .runtime
+            .clone()
+            .block_on(self.client.remove_text(request))?;
+        let composing_text = response.into_inner().composing_text;
+
+        let candidates = if let Some(composing_text) = composing_text {
+            Candidates {
+                texts: composing_text
+                    .suggestions
+                    .iter()
+                    .map(|s| s.text.clone())
+                    .collect(),
+                sub_texts: composing_text
+                    .suggestions
+                    .iter()
+                    .map(|s| s.subtext.clone())
+                    .collect(),
+                hiragana: composing_text.hiragana,
+                corresponding_count: composing_text
+                    .suggestions
+                    .iter()
+                    .map(|s| s.corresponding_count)
+                    .collect(),
+            }
+        } else {
+            anyhow::bail!("composing_text is None");
+        };
+
+        Ok(candidates)
+    }
+
+    #[tracing::instrument]
+    pub fn clear_text(&mut self) -> anyhow::Result<()> {
+        let request = tonic::Request::new(shared::proto::ClearTextRequest {});
+        let _response = self
+            .runtime
+            .clone()
+            .block_on(self.client.clear_text(request))?;
+
+        Ok(())
+    }
+
+    #[tracing::instrument]
+    pub fn shrink_text(&mut self, offset: i32) -> anyhow::Result<Candidates> {
+        let request = tonic::Request::new(shared::proto::ShrinkTextRequest { offset });
+        let response = self
+            .runtime
+            .clone()
+            .block_on(self.client.shrink_text(request))?;
+        let composing_text = response.into_inner().composing_text;
+
+        let candidates = if let Some(composing_text) = composing_text {
+            Candidates {
+                texts: composing_text
+                    .suggestions
+                    .iter()
+                    .map(|s| s.text.clone())
+                    .collect(),
+                sub_texts: composing_text
+                    .suggestions
+                    .iter()
+                    .map(|s| s.subtext.clone())
+                    .collect(),
+                hiragana: composing_text.hiragana,
+                corresponding_count: composing_text
+                    .suggestions
+                    .iter()
+                    .map(|s| s.corresponding_count)
+                    .collect(),
+            }
+        } else {
+            anyhow::bail!("composing_text is None");
+        };
+
+        Ok(candidates)
+    }
+
+    pub fn set_context(&mut self, context: String) -> anyhow::Result<()> {
+        let request = tonic::Request::new(shared::proto::SetContextRequest { context });
+        let _response = self
+            .runtime
+            .clone()
+            .block_on(self.client.set_context(request))?;
+
+        Ok(())
+    }
+}
+
+impl CandidateWindow {
+    pub fn new() -> Result<Self> {
+        let runtime = tokio::runtime::Runtime::new()?;
+
+        let channel = runtime.block_on(
             Endpoint::try_from("http://[::]:50052")?.connect_with_connector(service_fn(
                 |_| async {
                     let client = loop {
@@ -70,163 +212,19 @@ impl IPCService {
             )),
         )?;
 
-        let azookey_client = AzookeyServiceClient::new(server_channel);
-        let window_client = WindowServiceClient::new(ui_channel);
-        tracing::debug!("Connected to server: {:?}", azookey_client);
-
+        let client = WindowServiceClient::new(channel);
         Ok(Self {
-            azookey_client,
-            window_client,
+            client,
             runtime: Arc::new(runtime),
         })
     }
-}
 
-// implement methods to interact with kkc server
-impl IPCService {
-    #[tracing::instrument]
-    pub fn append_text(&mut self, text: String) -> anyhow::Result<Candidates> {
-        let request = tonic::Request::new(shared::proto::AppendTextRequest {
-            text_to_append: text,
-        });
-
-        let response = self
-            .runtime
-            .clone()
-            .block_on(self.azookey_client.append_text(request))?;
-        let composing_text = response.into_inner().composing_text;
-
-        let candidates = if let Some(composing_text) = composing_text {
-            Candidates {
-                texts: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.text.clone())
-                    .collect(),
-                sub_texts: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.subtext.clone())
-                    .collect(),
-                hiragana: composing_text.hiragana,
-                corresponding_count: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.corresponding_count)
-                    .collect(),
-            }
-        } else {
-            anyhow::bail!("composing_text is None");
-        };
-
-        Ok(candidates)
-    }
-
-    // 一文字消去する
-    #[tracing::instrument]
-    pub fn remove_text(&mut self) -> anyhow::Result<Candidates> {
-        let request = tonic::Request::new(shared::proto::RemoveTextRequest {});
-        let response = self
-            .runtime
-            .clone()
-            .block_on(self.azookey_client.remove_text(request))?;
-        let composing_text = response.into_inner().composing_text;
-
-        let candidates = if let Some(composing_text) = composing_text {
-            Candidates {
-                texts: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.text.clone())
-                    .collect(),
-                sub_texts: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.subtext.clone())
-                    .collect(),
-                hiragana: composing_text.hiragana,
-                corresponding_count: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.corresponding_count)
-                    .collect(),
-            }
-        } else {
-            anyhow::bail!("composing_text is None");
-        };
-
-        Ok(candidates)
-    }
-
-    // TODO: clear_compositionに改名
-    #[tracing::instrument]
-    pub fn clear_text(&mut self) -> anyhow::Result<()> {
-        let request = tonic::Request::new(shared::proto::ClearTextRequest {});
-        let _response = self
-            .runtime
-            .clone()
-            .block_on(self.azookey_client.clear_text(request))?;
-
-        Ok(())
-    }
-
-    // TODO: shrink_compositionに改名する
-    #[tracing::instrument]
-    pub fn shrink_text(&mut self, offset: i32) -> anyhow::Result<Candidates> {
-        let request = tonic::Request::new(shared::proto::ShrinkTextRequest { offset });
-        let response = self
-            .runtime
-            .clone()
-            .block_on(self.azookey_client.shrink_text(request))?;
-        let composing_text = response.into_inner().composing_text;
-
-        let candidates = if let Some(composing_text) = composing_text {
-            Candidates {
-                texts: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.text.clone())
-                    .collect(),
-                sub_texts: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.subtext.clone())
-                    .collect(),
-                hiragana: composing_text.hiragana,
-                corresponding_count: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.corresponding_count)
-                    .collect(),
-            }
-        } else {
-            anyhow::bail!("composing_text is None");
-        };
-
-        Ok(candidates)
-    }
-
-    // 前方文脈を変換サーバーに送信する
-    // TODO: set_contextではなくset_preceding_contextとかのが分かりやすい
-    pub fn set_context(&mut self, context: String) -> anyhow::Result<()> {
-        let request = tonic::Request::new(shared::proto::SetContextRequest { context });
-        let _response = self
-            .runtime
-            .clone()
-            .block_on(self.azookey_client.set_context(request))?;
-
-        Ok(())
-    }
-}
-
-// implement methods to interact with candidate window server
-impl IPCService {
     #[tracing::instrument]
     pub fn show_window(&mut self) -> anyhow::Result<()> {
         let request = tonic::Request::new(shared::proto::EmptyResponse {});
         self.runtime
             .clone()
-            .block_on(self.window_client.show_window(request))?;
+            .block_on(self.client.show_window(request))?;
 
         Ok(())
     }
@@ -236,7 +234,7 @@ impl IPCService {
         let request = tonic::Request::new(shared::proto::EmptyResponse {});
         self.runtime
             .clone()
-            .block_on(self.window_client.hide_window(request))?;
+            .block_on(self.client.hide_window(request))?;
 
         Ok(())
     }
@@ -259,7 +257,7 @@ impl IPCService {
         });
         self.runtime
             .clone()
-            .block_on(self.window_client.set_window_position(request))?;
+            .block_on(self.client.set_window_position(request))?;
 
         Ok(())
     }
@@ -269,7 +267,7 @@ impl IPCService {
         let request = tonic::Request::new(shared::proto::SetCandidateRequest { candidates });
         self.runtime
             .clone()
-            .block_on(self.window_client.set_candidate(request))?;
+            .block_on(self.client.set_candidate(request))?;
 
         Ok(())
     }
@@ -279,7 +277,7 @@ impl IPCService {
         let request = tonic::Request::new(shared::proto::SetSelectionRequest { index });
         self.runtime
             .clone()
-            .block_on(self.window_client.set_selection(request))?;
+            .block_on(self.client.set_selection(request))?;
 
         Ok(())
     }
@@ -291,7 +289,7 @@ impl IPCService {
         });
         self.runtime
             .clone()
-            .block_on(self.window_client.set_input_mode(request))?;
+            .block_on(self.client.set_input_mode(request))?;
 
         Ok(())
     }

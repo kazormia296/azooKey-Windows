@@ -1,0 +1,6 @@
+// src/globals.rsも参照
+#define IDI_ICON 101
+#define IDI_MODE_KANA_BLACK 102
+#define IDI_MODE_LATN_BLACK 103
+#define IDI_MODE_KANA_WHITE 104
+#define IDI_MODE_LATN_WHITE 105

@@ -4,7 +4,7 @@
 use windows::{
     core::{IUnknown, Interface as _, BSTR, GUID, PCWSTR},
     Win32::{
-        Foundation::{BOOL, E_INVALIDARG, POINT, RECT},
+        Foundation::{BOOL, E_FAIL, E_INVALIDARG, POINT, RECT},
         System::Ole::CONNECT_E_CANNOTCONNECT,
         UI::{
             TextServices::{
@@ -17,6 +17,8 @@ use windows::{
     },
 };
 
+use anyhow::Context;
+
 use crate::{
     engine::{
         input_mode::InputMode,
@@ -28,8 +30,6 @@ use crate::{
         IDI_MODE_LATN_BLACK, IDI_MODE_LATN_WHITE, TEXTSERVICE_LANGBARITEMSINK_COOKIE,
     },
 };
-
-use anyhow::{Context as _, Result};
 
 use super::text_service::TextService_Impl;
 
@@ -55,7 +55,7 @@ impl ITfLangBarItem_Impl for TextService_Impl {
         Ok(())
     }
 
-    #[macros::anyhow]
+    #[macros::anyhow(ignore_with = 0)]
     fn GetStatus(&self) -> Result<u32> {
         Ok(0)
     }
@@ -66,7 +66,7 @@ impl ITfLangBarItem_Impl for TextService_Impl {
     }
 
     // this will be shown as a tooltip when you hover the language bar item
-    #[macros::anyhow]
+    #[macros::anyhow(ignore_with = BSTR::default())]
     fn GetTooltipString(&self) -> Result<BSTR> {
         Ok(BSTR::default())
     }
@@ -90,7 +90,7 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
         Ok(())
     }
 
-    #[macros::anyhow]
+    #[macros::anyhow(fail_with = E_FAIL)]
     fn GetIcon(&self) -> Result<HICON> {
         let dll_module = DllModule::get()?;
         let state = &IMEState::get()?;
@@ -122,7 +122,7 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
         }
     }
 
-    #[macros::anyhow]
+    #[macros::anyhow(ignore_with = BSTR::default())]
     fn GetText(&self) -> Result<BSTR> {
         Ok(BSTR::default())
     }
@@ -130,7 +130,7 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
 
 // TODO: ITfSourceはなんでこんなところにあるのか
 impl ITfSource_Impl for TextService_Impl {
-    #[macros::anyhow]
+    #[macros::anyhow(fail_with = E_FAIL)]
     fn AdviseSink(&self, riid: *const GUID, punk: Option<&IUnknown>) -> Result<u32> {
         let riid = unsafe { *riid };
 

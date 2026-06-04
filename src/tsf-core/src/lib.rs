@@ -1,7 +1,6 @@
 mod engine;
 mod extension;
 mod globals;
-mod macros;
 mod register;
 mod trace;
 mod tsf;
@@ -43,7 +42,13 @@ pub extern "system" fn DllMain(
         trace::setup_logger();
         tracing::debug!("DllMain");
 
-        check_err!(result, true, false)
+        match result {
+            Ok(_) => true,
+            Err(e) => {
+                tracing::error!("{:?}", e);
+                false
+            }
+        }
     } else if fdw_reason == DLL_PROCESS_DETACH {
         tracing::debug!("DLL_PROCESS_DETACH");
 
@@ -53,7 +58,13 @@ pub extern "system" fn DllMain(
             Ok(())
         })();
 
-        check_err!(result, true, false)
+        match result {
+            Ok(_) => true,
+            Err(e) => {
+                tracing::error!("{:?}", e);
+                false
+            }
+        }
     } else {
         return true;
     }
@@ -98,7 +109,13 @@ pub unsafe extern "system" fn DllGetClassObject(
         Ok(())
     })();
 
-    check_err!(result)
+    match result {
+        Ok(_) => windows::Win32::Foundation::S_OK,
+        Err(e) => {
+            tracing::error!("{:?}", e);
+            windows::Win32::Foundation::S_FALSE
+        }
+    }
 }
 
 #[no_mangle]
@@ -118,7 +135,13 @@ pub extern "system" fn DllRegisterServer() -> HRESULT {
     })();
 
     // to show the error, SELFREG_E_CLASS is needed
-    check_err!(result, SELFREG_E_CLASS)
+    match result {
+        Ok(_) => windows::Win32::Foundation::S_OK,
+        Err(e) => {
+            tracing::error!("{:?}", e);
+            SELFREG_E_CLASS
+        }
+    }
 }
 
 #[no_mangle]
@@ -135,7 +158,13 @@ pub extern "system" fn DllUnregisterServer() -> HRESULT {
         Ok(())
     })();
 
-    check_err!(result, SELFREG_E_CLASS)
+    match result {
+        Ok(_) => windows::Win32::Foundation::S_OK,
+        Err(e) => {
+            tracing::error!("{:?}", e);
+            SELFREG_E_CLASS
+        }
+    }
 }
 
 #[no_mangle]

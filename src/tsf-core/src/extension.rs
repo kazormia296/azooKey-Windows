@@ -1,15 +1,10 @@
 use windows::{
-    core::{GUID, HSTRING, PCWSTR},
     Win32::{
-        System::Registry::{
-            RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegSetValueExW, HKEY, KEY_WRITE,
-            REG_OPTION_NON_VOLATILE, REG_SZ,
-        },
-        UI::Input::KeyboardAndMouse::{GetKeyState, VIRTUAL_KEY},
-    },
+        Foundation::ERROR_SUCCESS, System::Registry::{
+            HKEY, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegSetValueExW
+        }, UI::Input::KeyboardAndMouse::{GetKeyState, VIRTUAL_KEY}
+    }, core::{GUID, HSTRING, PCWSTR}
 };
-
-use crate::check_win32_err;
 
 // string extension
 pub trait StringExt {
@@ -86,7 +81,10 @@ impl RegKey for HKEY {
                 None,
             );
 
-            check_win32_err!(result, subkey_handle)
+            match result {
+                ERROR_SUCCESS => Ok(subkey_handle),
+                e => Err(windows::core::Error::from(e)),
+            }
         }
     }
 
@@ -102,7 +100,10 @@ impl RegKey for HKEY {
                 Some(value_w.as_slice()),
             );
 
-            check_win32_err!(result)
+            match result {
+                ERROR_SUCCESS => return Ok(()),
+                e => return Err(windows::core::Error::from(e)),
+            }
         }
     }
 
@@ -111,14 +112,20 @@ impl RegKey for HKEY {
         unsafe {
             let result = RegDeleteTreeW(*self, PCWSTR(subkey_w.as_ptr()));
 
-            check_win32_err!(result)
+            match result {
+                ERROR_SUCCESS => return Ok(()),
+                e => return Err(windows::core::Error::from(e)),
+            }
         }
     }
 
     fn close(&self) -> windows::core::Result<()> {
         unsafe {
             let result = RegCloseKey(*self);
-            check_win32_err!(result)
+            match result {
+                ERROR_SUCCESS => return Ok(()),
+                e => return Err(windows::core::Error::from(e)),
+            }
         }
     }
 }

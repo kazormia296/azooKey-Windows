@@ -26,26 +26,27 @@ use std::{
 };
 use windows::{
     core::{implement, BSTR, GUID},
-    Win32::UI::TextServices::{
-        IEnumTfDisplayAttributeInfo, IEnumTfDisplayAttributeInfo_Impl, ITfDisplayAttributeInfo,
-        ITfDisplayAttributeInfo_Impl, ITfDisplayAttributeProvider_Impl, TF_DISPLAYATTRIBUTE,
+    Win32::{
+        Foundation::E_FAIL,
+        UI::TextServices::{
+            IEnumTfDisplayAttributeInfo, IEnumTfDisplayAttributeInfo_Impl, ITfDisplayAttributeInfo,
+            ITfDisplayAttributeInfo_Impl, ITfDisplayAttributeProvider_Impl, TF_DISPLAYATTRIBUTE,
+        },
     },
 };
-
-use anyhow::Result;
 
 use crate::globals::{DISPLAY_ATTRIBUTE, GUID_DISPLAY_ATTRIBUTE};
 
 use super::text_service::TextService_Impl;
 
 impl ITfDisplayAttributeProvider_Impl for TextService_Impl {
-    #[macros::anyhow]
+    #[macros::anyhow(fail_with = E_FAIL)]
     fn EnumDisplayAttributeInfo(&self) -> windows::core::Result<IEnumTfDisplayAttributeInfo> {
         let enum_info = EnumDisplayAttributeInfo::new();
         Ok(enum_info.into())
     }
 
-    #[macros::anyhow]
+    #[macros::anyhow(fail_with = E_FAIL)]
     fn GetDisplayAttributeInfo(
         &self,
         guid: *const windows_core::GUID,
@@ -57,6 +58,7 @@ impl ITfDisplayAttributeProvider_Impl for TextService_Impl {
                 return Ok(attribute.into());
             }
         }
+        // TODO: 消す
         anyhow::bail!("Display attribute not found");
     }
 }
@@ -89,7 +91,7 @@ impl ITfDisplayAttributeInfo_Impl for DisplayAttributeInfo_Impl {
         Ok(())
     }
 
-    #[macros::anyhow]
+    #[macros::anyhow(fail_with = E_FAIL)]
     fn GetGUID(&self) -> Result<GUID> {
         Ok(self.guid)
     }
@@ -100,7 +102,7 @@ impl ITfDisplayAttributeInfo_Impl for DisplayAttributeInfo_Impl {
         Ok(())
     }
 
-    #[macros::anyhow]
+    #[macros::anyhow(fail_with = E_FAIL)]
     fn GetDescription(&self) -> Result<BSTR> {
         Ok(BSTR::default())
     }
@@ -136,7 +138,7 @@ impl EnumDisplayAttributeInfo {
 }
 
 impl IEnumTfDisplayAttributeInfo_Impl for EnumDisplayAttributeInfo_Impl {
-    #[macros::anyhow]
+    #[macros::anyhow(fail_with = E_FAIL)]
     fn Clone(&self) -> Result<IEnumTfDisplayAttributeInfo> {
         let clone = EnumDisplayAttributeInfo::new();
         // これは何？Relaxedってなんだっけ、AtomicUsizeのコードとか覚えてない

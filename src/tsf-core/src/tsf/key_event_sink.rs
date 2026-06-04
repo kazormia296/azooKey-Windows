@@ -19,13 +19,11 @@ use windows::{
     },
 };
 
-use anyhow::Result;
-
 use super::text_service::TextService_Impl;
 
 // sink (aka event listener) for key events
 impl ITfKeyEventSink_Impl for TextService_Impl {
-    #[macros::anyhow]
+    #[macros::anyhow(ignore_with = false.into())]
     #[tracing::instrument]
     fn OnTestKeyDown(
         &self,
@@ -38,15 +36,20 @@ impl ITfKeyEventSink_Impl for TextService_Impl {
         Ok(false.into())
     }
 
-    #[macros::anyhow]
+    #[macros::anyhow(ignore_with = false.into())]
     #[tracing::instrument]
-    fn OnKeyDown(&self, _pic: Option<&ITfContext>, _wparam: WPARAM, _lparam: LPARAM) -> Result<BOOL> {
+    fn OnKeyDown(
+        &self,
+        _pic: Option<&ITfContext>,
+        _wparam: WPARAM,
+        _lparam: LPARAM,
+    ) -> Result<BOOL> {
         // this function is called when a key is pressed
         // we can handle key events here
         Ok(false.into())
     }
 
-    #[macros::anyhow]
+    #[macros::anyhow(ignore_with = false.into())]
     fn OnTestKeyUp(
         &self,
         _pic: Option<&ITfContext>,
@@ -57,7 +60,7 @@ impl ITfKeyEventSink_Impl for TextService_Impl {
         Ok(false.into())
     }
 
-    #[macros::anyhow]
+    #[macros::anyhow(ignore_with = false.into())]
     fn OnKeyUp(&self, _pic: Option<&ITfContext>, _wparam: WPARAM, _lparam: LPARAM) -> Result<BOOL> {
         // this function is called when a key is released
         // but we handle key events in OnKeyDown function
@@ -65,7 +68,7 @@ impl ITfKeyEventSink_Impl for TextService_Impl {
         Ok(false.into())
     }
 
-    #[macros::anyhow]
+    #[macros::anyhow(ignore_with = false.into())]
     fn OnPreservedKey(&self, _pic: Option<&ITfContext>, _rguid: *const GUID) -> Result<BOOL> {
         // this function is actually not used
         Ok(true.into())

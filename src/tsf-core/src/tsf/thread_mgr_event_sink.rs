@@ -1,7 +1,6 @@
-use windows::Win32::UI::TextServices::{ITfContext, ITfDocumentMgr, ITfThreadMgrEventSink_Impl};
+use windows::{Win32::UI::TextServices::{ITfContext, ITfDocumentMgr, ITfThreadMgrEventSink_Impl}};
 
 use super::text_service::TextService_Impl;
-use anyhow::Result;
 
 // テキストボックスのフォーカスの変更などを取り扱う
 impl ITfThreadMgrEventSink_Impl for TextService_Impl {

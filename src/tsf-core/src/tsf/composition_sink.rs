@@ -1,6 +1,5 @@
 use crate::tsf::text_service::TextService_Impl;
 
-use anyhow::Result;
 use windows::Win32::UI::TextServices::{ITfComposition, ITfCompositionSink_Impl};
 
 impl ITfCompositionSink_Impl for TextService_Impl {

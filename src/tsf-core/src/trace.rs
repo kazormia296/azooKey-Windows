@@ -40,7 +40,10 @@ where
             string: &mut message,
         });
 
-        let str = format!("[{}: {}:{}] {}", level, file, line, message);
+        let str = format!(
+            "[AzooKey-Windows] [{}: {}:{}] {}",
+            level, file, line, message
+        );
         let wide: Vec<u16> = str.as_str().to_wide_16();
         unsafe { OutputDebugStringW(PCWSTR(wide.as_ptr())) };
     }

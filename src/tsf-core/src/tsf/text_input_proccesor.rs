@@ -19,7 +19,7 @@ use windows::{
     },
 };
 
-use anyhow::{Context, Result};
+use anyhow::Context;
 
 impl ITfTextInputProcessor_Impl for TextService_Impl {
     #[macros::anyhow]

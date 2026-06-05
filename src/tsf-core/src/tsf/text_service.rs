@@ -58,9 +58,7 @@ impl IClassFactory_Impl for TextService_Impl {
         *ppvobject = std::ptr::null_mut();
 
         if punkouter.is_some() {
-            return Err(anyhow::Error::new(windows::core::Error::from_hresult(
-                E_NOINTERFACE,
-            )));
+            return Err(windows::core::Error::from_hresult(E_NOINTERFACE).into());
         }
 
         unsafe {
@@ -76,9 +74,7 @@ impl IClassFactory_Impl for TextService_Impl {
                     )
                 }
                 _ => {
-                    return Err(anyhow::Error::new(windows::core::Error::from_hresult(
-                        E_NOINTERFACE,
-                    )))
+                    return Err(windows::core::Error::from_hresult(E_NOINTERFACE).into());
                 }
             };
         }
@@ -112,11 +108,11 @@ impl TextService {
         unsafe { factory.cast::<I>().map_err(|e| anyhow::Error::new(e)) }
     }
 
-    pub fn try_borrow_mut(&self) -> Result<RefMut<TextServiceInner>> {
+    pub fn try_borrow_mut(&self) -> Result<RefMut<'_, TextServiceInner>> {
         Ok(self.inner.try_borrow_mut()?)
     }
 
-    pub fn try_borrow(&self) -> Result<Ref<TextServiceInner>> {
+    pub fn try_borrow(&self) -> Result<Ref<'_, TextServiceInner>> {
         Ok(self.inner.try_borrow()?)
     }
 }

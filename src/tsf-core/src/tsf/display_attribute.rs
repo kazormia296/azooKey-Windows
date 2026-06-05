@@ -1,38 +1,17 @@
-/// 変換中のテキストに対する表示属性（下線など）の制御を行う
-///
-/// Text Service側が利用する表示属性を宣言し、それをTSF Applicationが受け取って表示するようになっている
-///
-/// 表示属性を宣言するためにTF_DISPLAYATTRIBUTE構造体を用いる。
-/// このrepositoryでは変換中の文字に対する下線のみを用いることにしており、globals.rsにその内容があるので要参照
-///
-/// ITfDisplayAttributeProvider -> IEnumTfDisplayAttributeInfo -> ITfDisplayAttributeInfoのように依存関係が存在し、コードもその並びに沿って書いてある。
-///
-/// ざっくりまとめると、
-/// ITfDisplayAttributeInfoは単一の表示属性を扱い、
-/// IEnumTfDisplayAttributeInfoは複数の表示属性をまとめて扱い、
-/// ITfDisplayAttributeProviderはIEnumTfDisplayAttributeInfoをTSF Application側に露出する
-/// ※今のところこのrepoでは単一の表示属性（下線）しか扱っていないが、例えばMicrosoft IMEは太い下線と細い下線を出し分けているように、複数の表示属性をまとめて管理する必要はある。
-///
-/// ITfDisplayAttributeInfoは単一の表示属性を扱う。GetAttributeInfoやGetGUID, GetDescriptionに加えてSetAttributeInfoやResetが存在する。
-/// SetAttributeやResetについては、おそらくTSF Application側からも表示属性を編集することがあるのだろうが、そんなことがあるのかよくわからない
-///
-/// IEnumTfDisplayAttributeInfoは複数のITfDisplayAttributeInfoをまとめて扱う。Next関数やClone関数などイテレーターで実装するような関数を実装する。
-/// このrepositoryでは単一の表示属性しか扱わないが、一応機能も含めて実装している。
-///
-/// ITfDisplayAttributeProviderはIEnumTfDisplayAttributeInfoの内容をTSF Applicationに露出する。Enumそのものを渡す関数と、GUIDのIndexを渡す関数がある。
+// https://learn.microsoft.com/en-us/windows/win32/tsf/providing-display-attributes
+
 use std::{
     cell::Cell,
     sync::atomic::{AtomicUsize, Ordering::Relaxed},
 };
 use windows::{
-    core::{implement, BSTR, GUID},
     Win32::{
-        Foundation::E_FAIL,
+        Foundation::{E_FAIL, E_INVALIDARG, S_FALSE},
         UI::TextServices::{
             IEnumTfDisplayAttributeInfo, IEnumTfDisplayAttributeInfo_Impl, ITfDisplayAttributeInfo,
             ITfDisplayAttributeInfo_Impl, ITfDisplayAttributeProvider_Impl, TF_DISPLAYATTRIBUTE,
         },
-    },
+    }, core::{BSTR, GUID, implement}
 };
 
 use crate::globals::{DISPLAY_ATTRIBUTE, GUID_DISPLAY_ATTRIBUTE};
@@ -41,8 +20,8 @@ use super::text_service::TextService_Impl;
 
 impl ITfDisplayAttributeProvider_Impl for TextService_Impl {
     #[macros::anyhow(fail_with = E_FAIL)]
-    fn EnumDisplayAttributeInfo(&self) -> windows::core::Result<IEnumTfDisplayAttributeInfo> {
-        let enum_info = EnumDisplayAttributeInfo::new();
+    fn EnumDisplayAttributeInfo(&self) -> Result<IEnumTfDisplayAttributeInfo> {
+        let enum_info = EnumDisplayAttributeInfo::new(EnumDisplayAttributeInfo::get_display_attributes());
         Ok(enum_info.into())
     }
 
@@ -50,20 +29,19 @@ impl ITfDisplayAttributeProvider_Impl for TextService_Impl {
     fn GetDisplayAttributeInfo(
         &self,
         guid: *const windows_core::GUID,
-    ) -> windows::core::Result<ITfDisplayAttributeInfo> {
-        let guid = unsafe { *guid };
-        let attributes = EnumDisplayAttributeInfo::new();
-        for attribute in attributes.attributes {
-            if attribute.guid == guid {
-                return Ok(attribute.into());
-            }
-        }
-        // TODO: 消す
-        anyhow::bail!("Display attribute not found");
+    ) -> Result<ITfDisplayAttributeInfo> {
+        let guid = unsafe { guid.as_ref() }
+            .ok_or_else(|| windows::core::Error::from_hresult(E_INVALIDARG))?;
+ 
+        EnumDisplayAttributeInfo::get_display_attributes()
+            .into_iter()
+            .find(|attr| attr.guid == *guid)
+            .map(|attr| attr.into())
+            .ok_or_else(|| windows::core::Error::from_hresult(E_INVALIDARG).into())
     }
 }
 
-//
+
 #[derive(Clone)]
 #[implement(ITfDisplayAttributeInfo)]
 pub struct DisplayAttributeInfo {
@@ -85,9 +63,11 @@ impl DisplayAttributeInfo {
 impl ITfDisplayAttributeInfo_Impl for DisplayAttributeInfo_Impl {
     #[macros::anyhow]
     fn GetAttributeInfo(&self, pda: *mut TF_DISPLAYATTRIBUTE) -> Result<()> {
-        unsafe {
-            *pda = self.attribute.get();
-        }
+        let pda = unsafe { pda.as_mut() }
+            .ok_or_else(|| windows::core::Error::from_hresult(E_INVALIDARG))?;
+
+        *pda = self.attribute.get();
+
         Ok(())
     }
 
@@ -109,9 +89,10 @@ impl ITfDisplayAttributeInfo_Impl for DisplayAttributeInfo_Impl {
 
     #[macros::anyhow]
     fn SetAttributeInfo(&self, pda: *const TF_DISPLAYATTRIBUTE) -> Result<()> {
-        unsafe {
-            self.attribute.set(*pda);
-        }
+        let pda = unsafe { pda.as_ref() }
+            .ok_or_else(|| windows::core::Error::from_hresult(E_INVALIDARG))?;
+            
+        self.attribute.set(*pda);
         Ok(())
     }
 }
@@ -122,27 +103,28 @@ pub struct EnumDisplayAttributeInfo {
     index: AtomicUsize,
 }
 
-#[allow(clippy::new_without_default)]
 impl EnumDisplayAttributeInfo {
-    pub fn new() -> Self {
-        let attributes = vec![DisplayAttributeInfo::new(
-            GUID_DISPLAY_ATTRIBUTE,
-            DISPLAY_ATTRIBUTE,
-        )];
-
+    pub fn new(attributes: Vec<DisplayAttributeInfo>) -> Self {
         EnumDisplayAttributeInfo {
             attributes,
             index: AtomicUsize::new(0),
         }
+    }
+
+    fn get_display_attributes() -> Vec<DisplayAttributeInfo> {
+        vec![
+            DisplayAttributeInfo::new(GUID_DISPLAY_ATTRIBUTE, DISPLAY_ATTRIBUTE),
+        ]
     }
 }
 
 impl IEnumTfDisplayAttributeInfo_Impl for EnumDisplayAttributeInfo_Impl {
     #[macros::anyhow(fail_with = E_FAIL)]
     fn Clone(&self) -> Result<IEnumTfDisplayAttributeInfo> {
-        let clone = EnumDisplayAttributeInfo::new();
-        // これは何？Relaxedってなんだっけ、AtomicUsizeのコードとか覚えてない
-        clone.index.store(self.index.load(Relaxed), Relaxed);
+        let clone = EnumDisplayAttributeInfo {
+            attributes: self.attributes.clone(),
+            index: AtomicUsize::new(self.index.load(Relaxed)),
+        };
         Ok(clone.into())
     }
 
@@ -153,40 +135,180 @@ impl IEnumTfDisplayAttributeInfo_Impl for EnumDisplayAttributeInfo_Impl {
         rginfo: *mut Option<ITfDisplayAttributeInfo>,
         pcfetched: *mut u32,
     ) -> Result<()> {
+        if ulcount == 0 {
+            return Ok(());
+        }
+        if rginfo.is_null() {
+            return Err(windows::core::Error::from_hresult(E_INVALIDARG).into());
+        }
+
         unsafe {
-            if ulcount == 0 {
-                return Ok(());
-            }
+            let dest_slice = std::slice::from_raw_parts_mut(rginfo, ulcount as usize);
 
             let mut fetched = 0;
             let mut index = self.index.load(Relaxed);
 
-            while fetched < ulcount && index < self.attributes.len() {
-                let attribute = match self.attributes.get(index).cloned() {
-                    Some(attr) => attr,
-                    None => anyhow::bail!("Display attribute not found"),
-                };
-                *rginfo = Some(attribute.into());
-                fetched += 1;
-                index += 1;
+            while fetched < ulcount as usize && index < self.attributes.len() {
+                if let (Some(attr), Some(dest)) = (self.attributes.get(index), dest_slice.get_mut(fetched)) {
+                    *dest = Some(attr.clone().into());
+                    fetched += 1;
+                    index += 1;
+                }
             }
 
             self.index.store(index, Relaxed);
-            *pcfetched = fetched;
+
+            if !pcfetched.is_null() {
+                *pcfetched = fetched as u32;
+            }
+
+            if fetched < ulcount as usize {
+                Err(windows::core::Error::from_hresult(S_FALSE).into())
+            } else {
+                Ok(())
+            }
         }
-        Ok(())
     }
 
     #[macros::anyhow]
     fn Reset(&self) -> Result<()> {
-        self.index.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.index.store(0, Relaxed);
         Ok(())
     }
 
     #[macros::anyhow]
     fn Skip(&self, ulcount: u32) -> Result<()> {
-        let index = self.index.load(Relaxed) + ulcount as usize;
-        self.index.store(index, Relaxed);
-        Ok(())
+        let current = self.index.load(Relaxed);
+        let target = current + ulcount as usize;
+        let limit = self.attributes.len();
+
+        if target <= limit {
+            self.index.store(target, Relaxed);
+            Ok(())
+        } else {
+            self.index.store(limit, Relaxed);
+            Err(windows::core::Error::from_hresult(S_FALSE).into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::UI::TextServices::IEnumTfDisplayAttributeInfo;
+
+    // ヘルパー関数: テスト用のAttributeを複数個作成する
+    fn create_test_attributes(count: usize) -> Vec<DisplayAttributeInfo> {
+        (0..count)
+            .map(|i| {
+                // インデックスからGUIDを生成 (例: 先頭の4バイトを i にする)
+                let guid = GUID::from_values(i as u32, 0, 0, [0, 0, 0, 0, 0, 0, 0, 0]);
+                DisplayAttributeInfo::new(
+                    guid,
+                    DISPLAY_ATTRIBUTE,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_enum_display_attribute_info() {
+        let attributes = create_test_attributes(3);
+        let enum_info: IEnumTfDisplayAttributeInfo = EnumDisplayAttributeInfo::new(attributes.clone()).into();
+
+        // 1回目のNextで2つ取得
+        let mut fetched = 0;
+        unsafe {
+            let mut info_array: [Option<ITfDisplayAttributeInfo>; 2] = [None, None];
+
+            let result = enum_info.Next(&mut info_array, &mut fetched);
+            
+            assert!(result.is_ok()); // S_OKが返るはず
+            assert_eq!(fetched, 2); // 2つ取得できたか確認
+
+            // 取得したAttributeのGUIDが正しいか確認
+            assert_eq!(info_array[0].as_ref().unwrap().GetGUID().unwrap(), attributes[0].guid);
+            assert_eq!(info_array[1].as_ref().unwrap().GetGUID().unwrap(), attributes[1].guid);
+        };
+
+        // 2回目のNextで残りの1つを取得
+        unsafe {
+            let mut info_array: [Option<ITfDisplayAttributeInfo>; 2] = [None, None];
+
+            let result = enum_info.Next(&mut info_array, &mut fetched);
+
+            assert!(result.is_ok()); // S_FALSE(ok)が返るはず
+            assert_eq!(fetched, 1); // 1つだけ取得する
+    
+            assert_eq!(info_array[0].as_ref().unwrap().GetGUID().unwrap(), attributes[2].guid); // 取得したAttributeのGUIDが正しいか確認
+            assert!(info_array[1].is_none()); // 2つ目は取得できないはず
+        };
+
+        // Resetして再度取得
+        unsafe {
+            enum_info.Reset().unwrap();
+
+            let mut info_array: [Option<ITfDisplayAttributeInfo>; 3] = [None, None, None];
+            let result = enum_info.Next(&mut info_array, &mut fetched);
+
+            assert!(result.is_ok()); // S_OKが返るはず
+            assert_eq!(fetched, 3); // 3つ取得できたか確認
+
+            // 取得したAttributeのGUIDが正しいか確認
+            assert_eq!(info_array[0].as_ref().unwrap().GetGUID().unwrap(), attributes[0].guid);
+            assert_eq!(info_array[1].as_ref().unwrap().GetGUID().unwrap(), attributes[1].guid);
+            assert_eq!(info_array[2].as_ref().unwrap().GetGUID().unwrap(), attributes[2].guid);
+        };
+
+        // Skipして取得
+        unsafe {
+            enum_info.Reset().unwrap();
+            enum_info.Skip(1).unwrap(); // 1つスキップ
+
+            let mut info_array: [Option<ITfDisplayAttributeInfo>; 2] = [None, None];
+            let result = enum_info.Next(&mut info_array, &mut fetched);
+            assert!(result.is_ok()); // S_OKが返るはず
+            assert_eq!(fetched, 2); // 2つ取得できたか確認
+
+            // 取得したAttributeのGUIDが正しいか確認
+            // 最初の1つはスキップされているはず
+            assert_eq!(info_array[0].as_ref().unwrap().GetGUID().unwrap(), attributes[1].guid);
+            assert_eq!(info_array[1].as_ref().unwrap().GetGUID().unwrap(), attributes[2].guid);
+        }
+
+        // Skipして取得 (スキップしすぎてS_FALSEになるパターン)
+        unsafe {
+            enum_info.Reset().unwrap();
+            let result = enum_info.Skip(5); // 5つスキップ (存在するのは3つだけなので2つスキップしてS_FALSEになるはず)
+            assert!(result.is_ok()); // S_FALSE(ok)が返るはず
+        }
+
+        // Cloneして取得
+        // Cloneしても元の列挙子の状態は変わらないはず
+        unsafe {
+            enum_info.Reset().unwrap();
+            let clone_info = enum_info.Clone().unwrap();
+
+            let mut info_array: [Option<ITfDisplayAttributeInfo>; 3] = [None, None, None];
+            let result = clone_info.Next(&mut info_array, &mut fetched);
+            assert!(result.is_ok()); // S_OKが返るはず
+            assert_eq!(fetched, 3); // 3つ取得できたか確認
+
+            // 取得したAttributeのGUIDが正しいか確認
+            assert_eq!(info_array[0].as_ref().unwrap().GetGUID().unwrap(), attributes[0].guid);
+            assert_eq!(info_array[1].as_ref().unwrap().GetGUID().unwrap(), attributes[1].guid);
+            assert_eq!(info_array[2].as_ref().unwrap().GetGUID().unwrap(), attributes[2].guid);
+
+            // 元の列挙子も状態が変わっていないか確認
+            let mut info_array: [Option<ITfDisplayAttributeInfo>; 3] = [None, None, None];
+            let result = enum_info.Next(&mut info_array, &mut fetched);
+            assert!(result.is_ok()); // S_OKが返るはず
+            assert_eq!(fetched, 3); // 3つ取得できたか確認
+
+            // 取得したAttributeのGUIDが正しいか確認
+            assert_eq!(info_array[0].as_ref().unwrap().GetGUID().unwrap(), attributes[0].guid);
+            assert_eq!(info_array[1].as_ref().unwrap().GetGUID().unwrap(), attributes[1].guid);
+            assert_eq!(info_array[2].as_ref().unwrap().GetGUID().unwrap(), attributes[2].guid);
+        }
     }
 }

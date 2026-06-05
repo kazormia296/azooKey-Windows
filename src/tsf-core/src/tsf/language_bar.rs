@@ -1,20 +1,14 @@
-// 言語バーを管理する
-// 言語バーとは、右下に表示されるあとかAとかそういうやつ
-
 use windows::{
-    core::{IUnknown, Interface as _, BSTR, GUID, PCWSTR},
     Win32::{
-        Foundation::{BOOL, E_FAIL, E_INVALIDARG, POINT, RECT},
+        Foundation::{BOOL, E_FAIL, E_INVALIDARG, E_NOTIMPL, POINT, RECT},
         System::Ole::CONNECT_E_CANNOTCONNECT,
         UI::{
             TextServices::{
-                ITfLangBarItemButton_Impl, ITfLangBarItemSink, ITfLangBarItem_Impl, ITfMenu,
-                ITfSource_Impl, TfLBIClick, GUID_LBI_INPUTMODE, TF_LANGBARITEMINFO,
-                TF_LBI_STYLE_BTN_BUTTON,
+                GUID_LBI_INPUTMODE, ITfLangBarItem_Impl, ITfLangBarItemButton, ITfLangBarItemButton_Impl, ITfLangBarItemMgr, ITfLangBarItemSink, ITfMenu, ITfSource_Impl, TF_LANGBARITEMINFO, TF_LBI_STYLE_BTN_BUTTON, TfLBIClick
             },
-            WindowsAndMessaging::{LoadImageW, HICON, IMAGE_ICON, LR_DEFAULTCOLOR},
+            WindowsAndMessaging::{HICON, IMAGE_ICON, LR_DEFAULTCOLOR, LoadImageW},
         },
-    },
+    }, core::{BSTR, GUID, IUnknown, Interface as _, PCWSTR}
 };
 
 use anyhow::Context;
@@ -29,26 +23,37 @@ use crate::{
         DllModule, GUID_TEXT_SERVICE, IDI_MODE_KANA_BLACK, IDI_MODE_KANA_WHITE,
         IDI_MODE_LATN_BLACK, IDI_MODE_LATN_WHITE, TEXTSERVICE_LANGBARITEMSINK_COOKIE,
     },
+    TextService,
 };
+
+use anyhow::Result;
 
 use super::text_service::TextService_Impl;
 
 // https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/ns-ctfutb-tf_langbariteminfo
 const LANGUAGE_BAR_INFO: TF_LANGBARITEMINFO = TF_LANGBARITEMINFO {
+    // Text ServiceのGUID
     clsidService: GUID_TEXT_SERVICE,
+    // GUID_LBI_INPUTMODEしか指定できない（docs参照）
     guidItem: GUID_LBI_INPUTMODE,
+    // MEMO: mozcでは言語バーに表示されないバグを防ぐためにTF_LBI_STYLE_SHOWNINTRAYを有効化している
+    // https://learn.microsoft.com/en-us/windows/win32/tsf/tf-lbi-style--constants?redirectedfrom=MSDN
+    // https://github.com/google/mozc/blob/9f99c20/src/win32/tip/tip_lang_bar_menu.cc#L191-L204
+    // ただし、Win10/11の環境ではタスクバーに表示するため、あまり関係がないと思われる
     dwStyle: TF_LBI_STYLE_BTN_BUTTON,
+    // 表示の優先度だが、現在のWindowsでは複数のアイテムを表示することができないため、意味がない
     ulSort: 0,
     szDescription: [0; 32],
 };
 
-// you need to implement these three interfaces to create a language bar item
-// if not, you will get E_FAIL error in ITfLangBarItemMgr::AddItem
-
-// 言語バーのアイテム...?
+// https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/nn-ctfutb-itflangbaritem
 impl ITfLangBarItem_Impl for TextService_Impl {
     #[macros::anyhow]
     fn GetInfo(&self, p_info: *mut TF_LANGBARITEMINFO) -> Result<()> {
+        if p_info.is_null() {
+            return Err(windows::core::Error::from_hresult(E_INVALIDARG).into());
+        }
+
         unsafe {
             *p_info = LANGUAGE_BAR_INFO;
         }
@@ -62,29 +67,35 @@ impl ITfLangBarItem_Impl for TextService_Impl {
 
     #[macros::anyhow]
     fn Show(&self, _f_show: BOOL) -> Result<()> {
-        Ok(())
+        // TF_LBI_STYLE_HIDDENSTATUSCONTROLを実装していないので、このメソッドは無意味
+        // https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/nf-ctfutb-itflangbaritem-show
+        Err(windows::core::Error::from_hresult(E_NOTIMPL).into())
     }
 
-    // this will be shown as a tooltip when you hover the language bar item
     #[macros::anyhow(ignore_with = BSTR::default())]
     fn GetTooltipString(&self) -> Result<BSTR> {
-        Ok(BSTR::default())
+        let tooltip_string = BSTR::from_wide(LANGUAGE_BAR_INFO.szDescription.as_slice())?;
+        Ok(tooltip_string)
     }
 }
 
 impl ITfLangBarItemButton_Impl for TextService_Impl {
     #[macros::anyhow]
     fn OnClick(&self, _click: TfLBIClick, _pt: &POINT, _prcarea: *const RECT) -> Result<()> {
+        // MEMO: TfLBIClickは右クリック(TF_LBI_CLK_RIGHT)、左クリック(TF_LBI_CLK_LEFT)の二つがある
+        // https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/ne-ctfutb-tflbiclick
+        // TODO: 左クリックでモードの切り替え、右クリックでメニューの表示などを実装する
         Ok(())
     }
 
-    // this method should not be called
+    // https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/nn-ctfutb-itflangbaritembutton
+    // Remarksにあるように、TF_LBI_STYLE_BTN_BUTTONを指定している場合、このメソッドは呼び出されない
     #[macros::anyhow]
     fn InitMenu(&self, _pmenu: Option<&ITfMenu>) -> Result<()> {
         Ok(())
     }
 
-    // this method should not be called
+    // InitMenuと同様に、TF_LBI_STYLE_BTN_BUTTONを指定している場合、このメソッドは呼び出されない
     #[macros::anyhow]
     fn OnMenuSelect(&self, _w_id: u32) -> Result<()> {
         Ok(())
@@ -124,26 +135,22 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
 
     #[macros::anyhow(ignore_with = BSTR::default())]
     fn GetText(&self) -> Result<BSTR> {
-        Ok(BSTR::default())
+        let text = BSTR::from_wide(LANGUAGE_BAR_INFO.szDescription.as_slice())?;
+        Ok(text)
     }
 }
 
-// TODO: ITfSourceはなんでこんなところにあるのか
 impl ITfSource_Impl for TextService_Impl {
     #[macros::anyhow(fail_with = E_FAIL)]
     fn AdviseSink(&self, riid: *const GUID, punk: Option<&IUnknown>) -> Result<u32> {
         let riid = unsafe { *riid };
 
         if riid != ITfLangBarItemSink::IID {
-            return Err(anyhow::Error::new(windows_core::Error::from_hresult(
-                E_INVALIDARG,
-            )));
+            return Err(windows::core::Error::from_hresult(CONNECT_E_CANNOTCONNECT).into());
         }
 
         if punk.is_none() {
-            return Err(anyhow::Error::new(windows_core::Error::from_hresult(
-                E_INVALIDARG,
-            )));
+            return Err(windows::core::Error::from_hresult(E_INVALIDARG).into());
         }
 
         Ok(TEXTSERVICE_LANGBARITEMSINK_COOKIE)
@@ -152,10 +159,27 @@ impl ITfSource_Impl for TextService_Impl {
     #[macros::anyhow]
     fn UnadviseSink(&self, dw_cookie: u32) -> Result<()> {
         if dw_cookie != TEXTSERVICE_LANGBARITEMSINK_COOKIE {
-            return Err(anyhow::Error::new(windows_core::Error::from_hresult(
-                CONNECT_E_CANNOTCONNECT,
-            )));
+            return Err(windows::core::Error::from_hresult(CONNECT_E_CANNOTCONNECT).into());
         }
+
+        Ok(())
+    }
+}
+
+
+impl TextService {
+    pub fn update_lang_bar(&self) -> Result<()> {
+        // 言語バーのアイコンを更新するために、いったんアイテムを削除してから再度追加する
+        let text_service = self.try_borrow()?;
+        let lang_bar_item_manager = text_service.thread_mgr()?.cast::<ITfLangBarItemMgr>()?;
+
+        unsafe {           
+            lang_bar_item_manager
+                .RemoveItem(&text_service.this::<ITfLangBarItemButton>()?)?;
+
+            lang_bar_item_manager
+                .AddItem(&text_service.this::<ITfLangBarItemButton>()?)?;
+        };
 
         Ok(())
     }

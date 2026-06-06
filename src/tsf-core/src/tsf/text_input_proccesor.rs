@@ -24,25 +24,19 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
     fn Activate(&self, ptim: Option<&ITfThreadMgr>, tid: u32) -> Result<()> {
         tracing::debug!("Activated with tid: {tid}");
 
-        // add reference to the dll instance to prevent it from being unloaded
         let mut dll_instance = DllModule::get()?;
         dll_instance.add_ref();
 
-        // innerへの借用を最小限にするため、必要なものを先に取得しておく
-        let (thread_mgr, this_key_event, this_event_sink, this_lang_bar) = {
-            let mut text_service_inner = self.try_borrow_mut()?;
+        self.tid.set(tid);
+        let thread_mgr = ptim.context("Thread manager is null")?;
+        self.thread_mgr.set(Some(thread_mgr.clone()));
 
-            text_service_inner.tid = tid;
-            let thread_mgr = ptim.context("Thread manager is null")?;
-            text_service_inner.thread_mgr = Some(thread_mgr.clone());
+        // COM インターフェースを取得（借用不要）
+        let this_key_event = self.this::<ITfKeyEventSink>()?;
+        let this_event_sink = self.this::<ITfThreadMgrEventSink>()?;
+        let this_lang_bar = self.this::<ITfLangBarItemButton>()?;
 
-            let this_key_event = text_service_inner.this::<ITfKeyEventSink>()?;
-            let this_event_sink = text_service_inner.this::<ITfThreadMgrEventSink>()?;
-            let this_lang_bar = text_service_inner.this::<ITfLangBarItemButton>()?;
-
-            (thread_mgr.clone(), this_key_event, this_event_sink, this_lang_bar)
-        };
-
+        // COM 登録
         tracing::debug!("AdviseKeyEventSink");
         unsafe {
             thread_mgr.cast::<ITfKeystrokeMgr>()?.AdviseKeyEventSink(
@@ -53,43 +47,37 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
         }
 
         tracing::debug!("AdviseThreadMgrEventSink");
-        let thread_mgr_event_sink_cookie = unsafe {
+        let cookie = unsafe {
             thread_mgr.cast::<ITfSource>()?.AdviseSink(
                 &ITfThreadMgrEventSink::IID,
                 &this_event_sink,
             )?
         };
+        self.thread_mgr_event_sink_cookie.set(Some(cookie));
 
         tracing::debug!("AdviseTextLayoutSink");
         let doc_mgr = unsafe { thread_mgr.GetFocus() };
         if let Ok(doc_mgr) = doc_mgr {
-            self.try_borrow_mut()?
-                .advise_text_layout_sink(doc_mgr)?;
+            self.advise_text_layout_sink(doc_mgr)?;
         }
+
+        tracing::debug!("Initialize display attribute");
+        let atom_map = unsafe {
+            let mut map = HashMap::new();
+            let category_mgr: ITfCategoryMgr =
+                CoCreateInstance(&CLSID_TF_CategoryMgr, None, CLSCTX_INPROC_SERVER)?;
+
+            let atom = category_mgr.RegisterGUID(&GUID_DISPLAY_ATTRIBUTE)?;
+            map.insert(GUID_DISPLAY_ATTRIBUTE, atom);
+            map
+        };
+        *self.display_attribute_atom.borrow_mut() = atom_map;
 
         tracing::debug!("Initialize langbar");
         unsafe {
             thread_mgr
                 .cast::<ITfLangBarItemMgr>()?
                 .AddItem(&this_lang_bar)?;
-        }
-
-        {
-            let mut text_service_inner = self.try_borrow_mut()?;
-            text_service_inner.thread_mgr_event_sink_cookie = Some(thread_mgr_event_sink_cookie);
-
-            tracing::debug!("Initialize display attribute");
-            let atom_map = unsafe {
-                let mut map = HashMap::new();
-                let category_mgr: ITfCategoryMgr =
-                    CoCreateInstance(&CLSID_TF_CategoryMgr, None, CLSCTX_INPROC_SERVER)?;
-
-                let atom = category_mgr.RegisterGUID(&GUID_DISPLAY_ATTRIBUTE)?;
-                map.insert(GUID_DISPLAY_ATTRIBUTE, atom);
-                map
-            };
-
-            text_service_inner.display_attribute_atom = atom_map;
         }
 
         tracing::debug!("Activate success");
@@ -106,46 +94,45 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
         let mut dll_instance = DllModule::get()?;
         dll_instance.release();
 
-        {
-            let text_service = self.try_borrow()?;
-            let thread_mgr = text_service.thread_mgr()?;
+        let thread_mgr = self.thread_mgr();
 
-            // remove key event sink
-            tracing::debug!("UnadviseKeyEventSink");
+        // remove key event sink
+        tracing::debug!("UnadviseKeyEventSink");
+        if let Ok(thread_mgr) = &thread_mgr {
             unsafe {
                 thread_mgr
                     .cast::<ITfKeystrokeMgr>()?
-                    .UnadviseKeyEventSink(text_service.tid)?;
+                    .UnadviseKeyEventSink(self.tid.get())?;
             };
 
             tracing::debug!("Remove langbar");
+            let this_lang_bar = self.this::<ITfLangBarItemButton>()?;
             unsafe {
                 thread_mgr
                     .cast::<ITfLangBarItemMgr>()?
-                    .RemoveItem(&text_service.this::<ITfLangBarItemButton>()?)
+                    .RemoveItem(&this_lang_bar)
             }?;
         }
 
-        let mut text_service = self.try_borrow_mut()?;
-        let thread_mgr = text_service.thread_mgr()?;
-
         // remove thread manager event sink
         tracing::debug!("UnadviseThreadMgrEventSink");
-        unsafe {
-            if let Some(cookie) = text_service.thread_mgr_event_sink_cookie.take() {
-                thread_mgr.cast::<ITfSource>()?.UnadviseSink(cookie)?;
+        if let Ok(thread_mgr) = &thread_mgr {
+            if let Some(cookie) = self.thread_mgr_event_sink_cookie.take() {
+                unsafe {
+                    thread_mgr.cast::<ITfSource>()?.UnadviseSink(cookie)?;
+                }
             }
-        };
+        }
 
         // drain all contexts (Drop handles sink cleanup automatically)
         tracing::debug!("DropContexts");
-        text_service.contexts.drain();
+        self.contexts.borrow_mut().drain();
 
         // clear display attribute
-        text_service.display_attribute_atom.clear();
+        self.display_attribute_atom.borrow_mut().clear();
 
-        text_service.tid = 0;
-        text_service.thread_mgr = None;
+        self.tid.set(0);
+        self.thread_mgr.set(None);
 
         tracing::debug!("Deactivate success");
 

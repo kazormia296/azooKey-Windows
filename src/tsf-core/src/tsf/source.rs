@@ -25,8 +25,7 @@ impl ITfSource_Impl for TextService_Impl {
         match *riid {
             ITfLangBarItemSink::IID => {
                 let sink: ITfLangBarItemSink = punk.unwrap().cast()?;
-                let mut inner = self.try_borrow_mut()?;
-                inner.lang_bar_item_sink = Some(sink);
+                self.lang_bar_item_sink.set(Some(sink));
                 Ok(LANG_BAR_ITEM_SINK_COOKIE)
             }
             _ => return Err(windows::core::Error::from_hresult(CONNECT_E_CANNOTCONNECT).into()),
@@ -37,8 +36,7 @@ impl ITfSource_Impl for TextService_Impl {
     fn UnadviseSink(&self, dw_cookie: u32) -> Result<()> {
         match dw_cookie {
             LANG_BAR_ITEM_SINK_COOKIE => {
-                let mut inner = self.try_borrow_mut()?;
-                inner.lang_bar_item_sink = None;
+                self.lang_bar_item_sink.set(None);
                 Ok(())
             }
             _ => return Err(windows::core::Error::from_hresult(CONNECT_E_CANNOTCONNECT).into()),

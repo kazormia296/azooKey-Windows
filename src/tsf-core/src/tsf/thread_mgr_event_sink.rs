@@ -24,8 +24,7 @@ impl ITfThreadMgrEventSink_Impl for TextService_Impl {
 
         // if focus is changed, the text layout sink should be updated
         if let Some(focus) = focus {
-            self.try_borrow_mut()?
-                .advise_text_layout_sink(focus.clone())?;
+            self.advise_text_layout_sink(focus.clone())?;
         }
         Ok(())
     }
@@ -33,7 +32,7 @@ impl ITfThreadMgrEventSink_Impl for TextService_Impl {
     #[macros::anyhow]
     fn OnPushContext(&self, pic: Option<&ITfContext>) -> Result<()> {
         if let Some(ctx) = pic {
-            self.try_borrow_mut()?.contexts.push(ctx.clone());
+            self.contexts.borrow_mut().push(ctx.clone());
         }
         Ok(())
     }
@@ -41,7 +40,7 @@ impl ITfThreadMgrEventSink_Impl for TextService_Impl {
     #[macros::anyhow]
     fn OnPopContext(&self, pic: Option<&ITfContext>) -> Result<()> {
         if let Some(ctx) = pic {
-            self.try_borrow_mut()?.contexts.pop(ctx);
+            self.contexts.borrow_mut().pop(ctx);
         }
         Ok(())
     }

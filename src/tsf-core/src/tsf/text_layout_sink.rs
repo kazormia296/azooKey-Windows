@@ -8,7 +8,7 @@ use windows::{
 
 use anyhow::Result;
 
-use super::{text_service::TextService_Impl, text_service_inner::TextServiceInner};
+use super::{text_service::TextService_Impl, text_service::TextService};
 
 impl ITfTextLayoutSink_Impl for TextService_Impl {
     // テキストの位置が変化したこっと期の動作を指定するイベントリスナー的なもの
@@ -24,19 +24,23 @@ impl ITfTextLayoutSink_Impl for TextService_Impl {
     }
 }
 
-impl TextServiceInner {
-    pub fn advise_text_layout_sink(&mut self, doc_mgr: ITfDocumentMgr) -> Result<()> {
-        for context in self.contexts.iter_mut() {
-            context.unadvise_text_layout_sink()?;
+impl TextService {
+    pub fn advise_text_layout_sink(&self, doc_mgr: ITfDocumentMgr) -> Result<()> {
+        {
+            let mut contexts = self.contexts.borrow_mut();
+            for context in contexts.iter_mut() {
+                context.unadvise_text_layout_sink()?;
+            }
         }
 
         unsafe {
             let context = doc_mgr.GetTop()?;
+            let this_layout_sink = self.this::<ITfTextLayoutSink>()?;
             let cookie = context
                 .cast::<ITfSource>()?
-                .AdviseSink(&ITfTextLayoutSink::IID, &self.this::<ITfTextLayoutSink>()?)?;
+                .AdviseSink(&ITfTextLayoutSink::IID, &this_layout_sink)?;
 
-            if let Some(state) = self.contexts.find_mut(&context) {
+            if let Some(state) = self.contexts.borrow_mut().find_mut(&context) {
                 state.text_layout_sink_cookie = Some(cookie);
             }
 

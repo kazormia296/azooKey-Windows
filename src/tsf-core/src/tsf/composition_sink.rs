@@ -11,8 +11,7 @@ impl ITfCompositionSink_Impl for TextService_Impl {
     ) -> Result<()> {
         tracing::debug!("OnCompositionTerminated");
         if let Some(_) = composition {
-            let mut inner = self.try_borrow_mut()?;
-            if let Some(state) = inner.contexts.active_mut() {
+            if let Some(state) = self.contexts.borrow_mut().active_mut() {
                 state.composition = None;
             }
         }

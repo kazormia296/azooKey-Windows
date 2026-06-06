@@ -1,4 +1,4 @@
-#[derive(Default, Clone, PartialEq, Debug)]
+#[derive(Default, Clone, Copy, PartialEq, Debug)]
 pub enum InputMode {
     #[default]
     Latin,

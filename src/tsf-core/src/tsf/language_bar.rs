@@ -22,12 +22,11 @@ use crate::{
         DllModule, GUID_TEXT_SERVICE, IDI_MODE_KANA_BLACK, IDI_MODE_KANA_WHITE,
         IDI_MODE_LATN_BLACK, IDI_MODE_LATN_WHITE,
     },
-    TextService,
 };
 
 use anyhow::Result;
 
-use super::text_service::TextService_Impl;
+use super::text_service::{TextService, TextService_Impl};
 
 // https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/ns-ctfutb-tf_langbariteminfo
 const LANGUAGE_BAR_INFO: TF_LANGBARITEMINFO = TF_LANGBARITEMINFO {
@@ -103,8 +102,7 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
     #[macros::anyhow(fail_with = E_FAIL)]
     fn GetIcon(&self) -> Result<HICON> {
         let dll_module = DllModule::get()?;
-        let text_service = self.try_borrow()?;
-        let input_mode = &text_service.input_mode;
+        let input_mode = self.input_mode.get();
         let theme = get_system_theme()?;
 
         let icon_id = match input_mode {
@@ -141,14 +139,11 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
 
 impl TextService {
     pub fn update_lang_bar(&self) -> Result<()> {
-        let sink = {
-            let text_service = self.try_borrow()?;
-            text_service.lang_bar_item_sink.clone()
-        };
-        if let Some(sink) = sink {
+        if let Some(sink) = self.lang_bar_item_sink.take() {
             unsafe {
                 sink.OnUpdate(TF_LBI_ICON | TF_LBI_TEXT | TF_LBI_TOOLTIP)?;
             }
+            self.lang_bar_item_sink.set(Some(sink));
         }
         Ok(())
     }

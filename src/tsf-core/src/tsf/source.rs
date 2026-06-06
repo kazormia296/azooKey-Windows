@@ -15,7 +15,6 @@ use super::text_service::TextService_Impl;
 impl ITfSource_Impl for TextService_Impl {
     #[macros::anyhow(fail_with = CONNECT_E_CANNOTCONNECT)]
     fn AdviseSink(&self, riid: *const GUID, punk: Option<&IUnknown>) -> Result<u32> {
-        // TODO: punkをどこかに保存する
         if punk.is_none() {
             return Err(windows::core::Error::from_hresult(E_INVALIDARG).into());
         }
@@ -24,7 +23,12 @@ impl ITfSource_Impl for TextService_Impl {
             .ok_or_else(|| windows::core::Error::from_hresult(E_INVALIDARG))?;
 
         match *riid {
-            ITfLangBarItemSink::IID => Ok(LANG_BAR_ITEM_SINK_COOKIE),
+            ITfLangBarItemSink::IID => {
+                let sink: ITfLangBarItemSink = punk.unwrap().cast()?;
+                let mut inner = self.try_borrow_mut()?;
+                inner.lang_bar_item_sink = Some(sink);
+                Ok(LANG_BAR_ITEM_SINK_COOKIE)
+            }
             _ => return Err(windows::core::Error::from_hresult(CONNECT_E_CANNOTCONNECT).into()),
         }
     }
@@ -32,7 +36,11 @@ impl ITfSource_Impl for TextService_Impl {
     #[macros::anyhow]
     fn UnadviseSink(&self, dw_cookie: u32) -> Result<()> {
         match dw_cookie {
-            LANG_BAR_ITEM_SINK_COOKIE => Ok(()),
+            LANG_BAR_ITEM_SINK_COOKIE => {
+                let mut inner = self.try_borrow_mut()?;
+                inner.lang_bar_item_sink = None;
+                Ok(())
+            }
             _ => return Err(windows::core::Error::from_hresult(CONNECT_E_CANNOTCONNECT).into()),
         }
     }

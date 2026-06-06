@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use windows::{
     core::{Interface, GUID},
-    Win32::UI::TextServices::{ITfTextInputProcessor, ITfThreadMgr},
+    Win32::UI::TextServices::{ITfLangBarItemSink, ITfTextInputProcessor, ITfThreadMgr},
 };
 
 use anyhow::{Context, Result};
@@ -19,6 +19,7 @@ pub struct TextServiceInner {
     pub display_attribute_atom: HashMap<GUID, u32>,
     pub input_mode: InputMode,
     pub this: Option<ITfTextInputProcessor>,
+    pub lang_bar_item_sink: Option<ITfLangBarItemSink>,
     pub contexts: ContextManager,
 }
 

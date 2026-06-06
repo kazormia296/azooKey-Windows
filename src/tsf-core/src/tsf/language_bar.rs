@@ -1,16 +1,14 @@
 use windows::{
-    core::{Interface as _, BSTR, PCWSTR},
     Win32::{
         Foundation::{BOOL, E_FAIL, E_INVALIDARG, E_NOTIMPL, POINT, RECT},
         UI::{
             TextServices::{
-                ITfLangBarItemButton, ITfLangBarItemButton_Impl, ITfLangBarItemMgr,
-                ITfLangBarItem_Impl, ITfMenu, TfLBIClick, GUID_LBI_INPUTMODE, TF_LANGBARITEMINFO,
-                TF_LBI_STYLE_BTN_BUTTON,
+                GUID_LBI_INPUTMODE, ITfLangBarItem_Impl, ITfLangBarItemButton_Impl, ITfMenu, TF_LANGBARITEMINFO, TF_LBI_ICON, TF_LBI_STYLE_BTN_BUTTON, TF_LBI_TEXT, TF_LBI_TOOLTIP, TfLBIClick
             },
-            WindowsAndMessaging::{LoadImageW, HICON, IMAGE_ICON, LR_DEFAULTCOLOR},
+            WindowsAndMessaging::{HICON, IMAGE_ICON, LR_DEFAULTCOLOR, LoadImageW},
         },
     },
+    core::{BSTR, PCWSTR},
 };
 
 use anyhow::Context;
@@ -143,16 +141,15 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
 
 impl TextService {
     pub fn update_lang_bar(&self) -> Result<()> {
-        // 言語バーのアイコンを更新するために、いったんアイテムを削除してから再度追加する
-        let text_service = self.try_borrow()?;
-        let lang_bar_item_manager = text_service.thread_mgr()?.cast::<ITfLangBarItemMgr>()?;
-
-        unsafe {
-            lang_bar_item_manager.RemoveItem(&text_service.this::<ITfLangBarItemButton>()?)?;
-
-            lang_bar_item_manager.AddItem(&text_service.this::<ITfLangBarItemButton>()?)?;
+        let sink = {
+            let text_service = self.try_borrow()?;
+            text_service.lang_bar_item_sink.clone()
         };
-
+        if let Some(sink) = sink {
+            unsafe {
+                sink.OnUpdate(TF_LBI_ICON | TF_LBI_TEXT | TF_LBI_TOOLTIP)?;
+            }
+        }
         Ok(())
     }
 }

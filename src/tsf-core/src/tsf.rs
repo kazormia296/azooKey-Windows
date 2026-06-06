@@ -1,4 +1,4 @@
-pub(super) mod composition_sink;
+pub(super) mod composition;
 pub(super) mod compartment;
 pub(super) mod context;
 pub(super) mod display_attribute;

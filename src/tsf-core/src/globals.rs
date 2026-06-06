@@ -54,9 +54,6 @@ pub const DISPLAY_ATTRIBUTE: TF_DISPLAYATTRIBUTE = TF_DISPLAYATTRIBUTE {
     bAttr: TF_ATTR_TARGET_CONVERTED,
 };
 
-// You can use any value for this cookie.
-pub const TEXTSERVICE_LANGBARITEMSINK_COOKIE: u32 = 0;
-
 pub static DLL_INSTANCE: OnceLock<Mutex<DllModule>> = OnceLock::new();
 
 unsafe impl Sync for DllModule {}

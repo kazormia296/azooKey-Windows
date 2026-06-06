@@ -1,13 +1,12 @@
 use windows::{
-    core::{IUnknown, Interface as _, BSTR, GUID, PCWSTR},
+    core::{Interface as _, BSTR, PCWSTR},
     Win32::{
         Foundation::{BOOL, E_FAIL, E_INVALIDARG, E_NOTIMPL, POINT, RECT},
-        System::Ole::CONNECT_E_CANNOTCONNECT,
         UI::{
             TextServices::{
                 ITfLangBarItemButton, ITfLangBarItemButton_Impl, ITfLangBarItemMgr,
-                ITfLangBarItemSink, ITfLangBarItem_Impl, ITfMenu, ITfSource_Impl, TfLBIClick,
-                GUID_LBI_INPUTMODE, TF_LANGBARITEMINFO, TF_LBI_STYLE_BTN_BUTTON,
+                ITfLangBarItem_Impl, ITfMenu, TfLBIClick, GUID_LBI_INPUTMODE, TF_LANGBARITEMINFO,
+                TF_LBI_STYLE_BTN_BUTTON,
             },
             WindowsAndMessaging::{LoadImageW, HICON, IMAGE_ICON, LR_DEFAULTCOLOR},
         },
@@ -24,7 +23,7 @@ use crate::{
     },
     globals::{
         DllModule, GUID_TEXT_SERVICE, IDI_MODE_KANA_BLACK, IDI_MODE_KANA_WHITE,
-        IDI_MODE_LATN_BLACK, IDI_MODE_LATN_WHITE, TEXTSERVICE_LANGBARITEMSINK_COOKIE,
+        IDI_MODE_LATN_BLACK, IDI_MODE_LATN_WHITE,
     },
     TextService,
 };
@@ -140,32 +139,6 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
     fn GetText(&self) -> Result<BSTR> {
         let text = BSTR::from_wide(LANGUAGE_BAR_INFO.szDescription.as_slice())?;
         Ok(text)
-    }
-}
-
-impl ITfSource_Impl for TextService_Impl {
-    #[macros::anyhow(fail_with = E_FAIL)]
-    fn AdviseSink(&self, riid: *const GUID, punk: Option<&IUnknown>) -> Result<u32> {
-        let riid = unsafe { *riid };
-
-        if riid != ITfLangBarItemSink::IID {
-            return Err(windows::core::Error::from_hresult(CONNECT_E_CANNOTCONNECT).into());
-        }
-
-        if punk.is_none() {
-            return Err(windows::core::Error::from_hresult(E_INVALIDARG).into());
-        }
-
-        Ok(TEXTSERVICE_LANGBARITEMSINK_COOKIE)
-    }
-
-    #[macros::anyhow]
-    fn UnadviseSink(&self, dw_cookie: u32) -> Result<()> {
-        if dw_cookie != TEXTSERVICE_LANGBARITEMSINK_COOKIE {
-            return Err(windows::core::Error::from_hresult(CONNECT_E_CANNOTCONNECT).into());
-        }
-
-        Ok(())
     }
 }
 

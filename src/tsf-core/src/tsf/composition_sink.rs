@@ -7,10 +7,15 @@ impl ITfCompositionSink_Impl for TextService_Impl {
     fn OnCompositionTerminated(
         &self,
         _ecwrite: u32,
-        _pcomposition: Option<&ITfComposition>,
+        composition: Option<&ITfComposition>,
     ) -> Result<()> {
-        // if user clicked outside the composition, the composition will be terminated
         tracing::debug!("OnCompositionTerminated");
+        if let Some(_) = composition {
+            let mut inner = self.try_borrow_mut()?;
+            if let Some(state) = inner.contexts.active_mut() {
+                state.composition = None;
+            }
+        }
         Ok(())
     }
 }

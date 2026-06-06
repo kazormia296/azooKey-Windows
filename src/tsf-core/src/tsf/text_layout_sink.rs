@@ -8,8 +8,6 @@ use windows::{
 
 use anyhow::Result;
 
-use crate::engine::state::IMEState;
-
 use super::{text_service::TextService_Impl, text_service_inner::TextServiceInner};
 
 impl ITfTextLayoutSink_Impl for TextService_Impl {
@@ -28,35 +26,18 @@ impl ITfTextLayoutSink_Impl for TextService_Impl {
 
 impl TextServiceInner {
     pub fn advise_text_layout_sink(&mut self, doc_mgr: ITfDocumentMgr) -> Result<()> {
-        if IMEState::get()?.context.is_some() {
-            self.unadvise_text_layout_sink()?;
+        for context in self.contexts.iter_mut() {
+            context.unadvise_text_layout_sink()?;
         }
 
         unsafe {
             let context = doc_mgr.GetTop()?;
-
-            IMEState::get()?.context = Some(context.clone());
-
             let cookie = context
                 .cast::<ITfSource>()?
                 .AdviseSink(&ITfTextLayoutSink::IID, &self.this::<ITfTextLayoutSink>()?)?;
 
-            IMEState::get()?
-                .cookies
-                .insert(ITfTextLayoutSink::IID, cookie);
-
-            Ok(())
-        }
-    }
-
-    pub fn unadvise_text_layout_sink(&mut self) -> Result<()> {
-        unsafe {
-            let mut state = IMEState::get()?;
-
-            if let Some(context) = state.context.take() {
-                if let Some(cookie) = state.cookies.remove(&ITfTextLayoutSink::IID) {
-                    context.cast::<ITfSource>()?.UnadviseSink(cookie)?;
-                }
+            if let Some(state) = self.contexts.find_mut(&context) {
+                state.text_layout_sink_cookie = Some(cookie);
             }
 
             Ok(())

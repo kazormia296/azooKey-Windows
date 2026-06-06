@@ -18,7 +18,6 @@ use anyhow::Context;
 use crate::{
     engine::{
         input_mode::InputMode,
-        state::IMEState,
         theme::{get_system_theme, SystemTheme},
     },
     globals::{
@@ -106,8 +105,8 @@ impl ITfLangBarItemButton_Impl for TextService_Impl {
     #[macros::anyhow(fail_with = E_FAIL)]
     fn GetIcon(&self) -> Result<HICON> {
         let dll_module = DllModule::get()?;
-        let state = &IMEState::get()?;
-        let input_mode = &state.input_mode;
+        let text_service = self.try_borrow()?;
+        let input_mode = &text_service.input_mode;
         let theme = get_system_theme()?;
 
         let icon_id = match input_mode {

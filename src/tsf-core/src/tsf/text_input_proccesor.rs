@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{
-    engine::state::IMEState,
-    globals::{DllModule, GUID_DISPLAY_ATTRIBUTE},
-};
+use crate::globals::{DllModule, GUID_DISPLAY_ATTRIBUTE};
 
 use super::text_service::TextService_Impl;
 use windows::{
@@ -55,9 +52,7 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
                 &ITfThreadMgrEventSink::IID,
                 &text_service.this::<ITfThreadMgrEventSink>()?,
             )?;
-            IMEState::get()?
-                .cookies
-                .insert(ITfThreadMgrEventSink::IID, cookie);
+            text_service.thread_mgr_event_sink_cookie = Some(cookie);
         };
 
         // initialize text layout sink
@@ -129,14 +124,14 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
         // remove thread manager event sink
         tracing::debug!("UnadviseThreadMgrEventSink");
         unsafe {
-            if let Some(cookie) = IMEState::get()?.cookies.remove(&ITfThreadMgrEventSink::IID) {
+            if let Some(cookie) = text_service.thread_mgr_event_sink_cookie.take() {
                 thread_mgr.cast::<ITfSource>()?.UnadviseSink(cookie)?;
             }
         };
 
-        // remove text layout sink
-        tracing::debug!("UnadviseTextLayoutSink");
-        text_service.unadvise_text_layout_sink()?;
+        // drain all contexts (Drop handles sink cleanup automatically)
+        tracing::debug!("DropContexts");
+        text_service.contexts.drain();
 
         // clear display attribute
         text_service.display_attribute_atom.clear();

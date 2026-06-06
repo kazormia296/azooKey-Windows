@@ -31,12 +31,18 @@ impl ITfThreadMgrEventSink_Impl for TextService_Impl {
     }
 
     #[macros::anyhow]
-    fn OnPushContext(&self, _pic: Option<&ITfContext>) -> Result<()> {
+    fn OnPushContext(&self, pic: Option<&ITfContext>) -> Result<()> {
+        if let Some(ctx) = pic {
+            self.try_borrow_mut()?.contexts.push(ctx.clone());
+        }
         Ok(())
     }
 
     #[macros::anyhow]
-    fn OnPopContext(&self, _pic: Option<&ITfContext>) -> Result<()> {
+    fn OnPopContext(&self, pic: Option<&ITfContext>) -> Result<()> {
+        if let Some(ctx) = pic {
+            self.try_borrow_mut()?.contexts.pop(ctx);
+        }
         Ok(())
     }
 }

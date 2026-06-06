@@ -5,13 +5,14 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering::Relaxed},
 };
 use windows::{
+    core::{implement, BSTR, GUID},
     Win32::{
         Foundation::{E_FAIL, E_INVALIDARG, S_FALSE},
         UI::TextServices::{
             IEnumTfDisplayAttributeInfo, IEnumTfDisplayAttributeInfo_Impl, ITfDisplayAttributeInfo,
             ITfDisplayAttributeInfo_Impl, ITfDisplayAttributeProvider_Impl, TF_DISPLAYATTRIBUTE,
         },
-    }, core::{BSTR, GUID, implement}
+    },
 };
 
 use crate::globals::{DISPLAY_ATTRIBUTE, GUID_DISPLAY_ATTRIBUTE};
@@ -21,7 +22,8 @@ use super::text_service::TextService_Impl;
 impl ITfDisplayAttributeProvider_Impl for TextService_Impl {
     #[macros::anyhow(fail_with = E_FAIL)]
     fn EnumDisplayAttributeInfo(&self) -> Result<IEnumTfDisplayAttributeInfo> {
-        let enum_info = EnumDisplayAttributeInfo::new(EnumDisplayAttributeInfo::get_display_attributes());
+        let enum_info =
+            EnumDisplayAttributeInfo::new(EnumDisplayAttributeInfo::get_display_attributes());
         Ok(enum_info.into())
     }
 
@@ -32,7 +34,7 @@ impl ITfDisplayAttributeProvider_Impl for TextService_Impl {
     ) -> Result<ITfDisplayAttributeInfo> {
         let guid = unsafe { guid.as_ref() }
             .ok_or_else(|| windows::core::Error::from_hresult(E_INVALIDARG))?;
- 
+
         EnumDisplayAttributeInfo::get_display_attributes()
             .into_iter()
             .find(|attr| attr.guid == *guid)
@@ -40,7 +42,6 @@ impl ITfDisplayAttributeProvider_Impl for TextService_Impl {
             .ok_or_else(|| windows::core::Error::from_hresult(E_INVALIDARG).into())
     }
 }
-
 
 #[derive(Clone)]
 #[implement(ITfDisplayAttributeInfo)]
@@ -91,7 +92,7 @@ impl ITfDisplayAttributeInfo_Impl for DisplayAttributeInfo_Impl {
     fn SetAttributeInfo(&self, pda: *const TF_DISPLAYATTRIBUTE) -> Result<()> {
         let pda = unsafe { pda.as_ref() }
             .ok_or_else(|| windows::core::Error::from_hresult(E_INVALIDARG))?;
-            
+
         self.attribute.set(*pda);
         Ok(())
     }
@@ -112,9 +113,10 @@ impl EnumDisplayAttributeInfo {
     }
 
     fn get_display_attributes() -> Vec<DisplayAttributeInfo> {
-        vec![
-            DisplayAttributeInfo::new(GUID_DISPLAY_ATTRIBUTE, DISPLAY_ATTRIBUTE),
-        ]
+        vec![DisplayAttributeInfo::new(
+            GUID_DISPLAY_ATTRIBUTE,
+            DISPLAY_ATTRIBUTE,
+        )]
     }
 }
 
@@ -149,7 +151,9 @@ impl IEnumTfDisplayAttributeInfo_Impl for EnumDisplayAttributeInfo_Impl {
             let mut index = self.index.load(Relaxed);
 
             while fetched < ulcount as usize && index < self.attributes.len() {
-                if let (Some(attr), Some(dest)) = (self.attributes.get(index), dest_slice.get_mut(fetched)) {
+                if let (Some(attr), Some(dest)) =
+                    (self.attributes.get(index), dest_slice.get_mut(fetched))
+                {
                     *dest = Some(attr.clone().into());
                     fetched += 1;
                     index += 1;
@@ -203,10 +207,7 @@ mod tests {
             .map(|i| {
                 // インデックスからGUIDを生成 (例: 先頭の4バイトを i にする)
                 let guid = GUID::from_values(i as u32, 0, 0, [0, 0, 0, 0, 0, 0, 0, 0]);
-                DisplayAttributeInfo::new(
-                    guid,
-                    DISPLAY_ATTRIBUTE,
-                )
+                DisplayAttributeInfo::new(guid, DISPLAY_ATTRIBUTE)
             })
             .collect()
     }
@@ -214,7 +215,8 @@ mod tests {
     #[test]
     fn test_enum_display_attribute_info() {
         let attributes = create_test_attributes(3);
-        let enum_info: IEnumTfDisplayAttributeInfo = EnumDisplayAttributeInfo::new(attributes.clone()).into();
+        let enum_info: IEnumTfDisplayAttributeInfo =
+            EnumDisplayAttributeInfo::new(attributes.clone()).into();
 
         // 1回目のNextで2つ取得
         let mut fetched = 0;
@@ -222,13 +224,19 @@ mod tests {
             let mut info_array: [Option<ITfDisplayAttributeInfo>; 2] = [None, None];
 
             let result = enum_info.Next(&mut info_array, &mut fetched);
-            
+
             assert!(result.is_ok()); // S_OKが返るはず
             assert_eq!(fetched, 2); // 2つ取得できたか確認
 
             // 取得したAttributeのGUIDが正しいか確認
-            assert_eq!(info_array[0].as_ref().unwrap().GetGUID().unwrap(), attributes[0].guid);
-            assert_eq!(info_array[1].as_ref().unwrap().GetGUID().unwrap(), attributes[1].guid);
+            assert_eq!(
+                info_array[0].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[0].guid
+            );
+            assert_eq!(
+                info_array[1].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[1].guid
+            );
         };
 
         // 2回目のNextで残りの1つを取得
@@ -239,8 +247,11 @@ mod tests {
 
             assert!(result.is_ok()); // S_FALSE(ok)が返るはず
             assert_eq!(fetched, 1); // 1つだけ取得する
-    
-            assert_eq!(info_array[0].as_ref().unwrap().GetGUID().unwrap(), attributes[2].guid); // 取得したAttributeのGUIDが正しいか確認
+
+            assert_eq!(
+                info_array[0].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[2].guid
+            ); // 取得したAttributeのGUIDが正しいか確認
             assert!(info_array[1].is_none()); // 2つ目は取得できないはず
         };
 
@@ -255,9 +266,18 @@ mod tests {
             assert_eq!(fetched, 3); // 3つ取得できたか確認
 
             // 取得したAttributeのGUIDが正しいか確認
-            assert_eq!(info_array[0].as_ref().unwrap().GetGUID().unwrap(), attributes[0].guid);
-            assert_eq!(info_array[1].as_ref().unwrap().GetGUID().unwrap(), attributes[1].guid);
-            assert_eq!(info_array[2].as_ref().unwrap().GetGUID().unwrap(), attributes[2].guid);
+            assert_eq!(
+                info_array[0].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[0].guid
+            );
+            assert_eq!(
+                info_array[1].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[1].guid
+            );
+            assert_eq!(
+                info_array[2].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[2].guid
+            );
         };
 
         // Skipして取得
@@ -272,8 +292,14 @@ mod tests {
 
             // 取得したAttributeのGUIDが正しいか確認
             // 最初の1つはスキップされているはず
-            assert_eq!(info_array[0].as_ref().unwrap().GetGUID().unwrap(), attributes[1].guid);
-            assert_eq!(info_array[1].as_ref().unwrap().GetGUID().unwrap(), attributes[2].guid);
+            assert_eq!(
+                info_array[0].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[1].guid
+            );
+            assert_eq!(
+                info_array[1].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[2].guid
+            );
         }
 
         // Skipして取得 (スキップしすぎてS_FALSEになるパターン)
@@ -295,9 +321,18 @@ mod tests {
             assert_eq!(fetched, 3); // 3つ取得できたか確認
 
             // 取得したAttributeのGUIDが正しいか確認
-            assert_eq!(info_array[0].as_ref().unwrap().GetGUID().unwrap(), attributes[0].guid);
-            assert_eq!(info_array[1].as_ref().unwrap().GetGUID().unwrap(), attributes[1].guid);
-            assert_eq!(info_array[2].as_ref().unwrap().GetGUID().unwrap(), attributes[2].guid);
+            assert_eq!(
+                info_array[0].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[0].guid
+            );
+            assert_eq!(
+                info_array[1].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[1].guid
+            );
+            assert_eq!(
+                info_array[2].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[2].guid
+            );
 
             // 元の列挙子も状態が変わっていないか確認
             let mut info_array: [Option<ITfDisplayAttributeInfo>; 3] = [None, None, None];
@@ -306,9 +341,18 @@ mod tests {
             assert_eq!(fetched, 3); // 3つ取得できたか確認
 
             // 取得したAttributeのGUIDが正しいか確認
-            assert_eq!(info_array[0].as_ref().unwrap().GetGUID().unwrap(), attributes[0].guid);
-            assert_eq!(info_array[1].as_ref().unwrap().GetGUID().unwrap(), attributes[1].guid);
-            assert_eq!(info_array[2].as_ref().unwrap().GetGUID().unwrap(), attributes[2].guid);
+            assert_eq!(
+                info_array[0].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[0].guid
+            );
+            assert_eq!(
+                info_array[1].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[1].guid
+            );
+            assert_eq!(
+                info_array[2].as_ref().unwrap().GetGUID().unwrap(),
+                attributes[2].guid
+            );
         }
     }
 }

@@ -1,9 +1,13 @@
 use windows::{
+    core::{GUID, HSTRING, PCWSTR},
     Win32::{
-        Foundation::ERROR_SUCCESS, System::Registry::{
-            HKEY, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegSetValueExW
-        }, UI::Input::KeyboardAndMouse::{GetKeyState, VIRTUAL_KEY}
-    }, core::{GUID, HSTRING, PCWSTR}
+        Foundation::ERROR_SUCCESS,
+        System::Registry::{
+            RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegSetValueExW, HKEY, KEY_WRITE,
+            REG_OPTION_NON_VOLATILE, REG_SZ,
+        },
+        UI::Input::KeyboardAndMouse::{GetKeyState, VIRTUAL_KEY},
+    },
 };
 
 // string extension

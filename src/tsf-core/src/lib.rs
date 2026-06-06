@@ -22,7 +22,6 @@ use windows::{
     },
 };
 
-
 #[no_mangle]
 pub extern "system" fn DllMain(
     hinst: HMODULE,

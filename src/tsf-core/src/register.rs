@@ -106,8 +106,18 @@ impl CategoryMgr {
             let catmgr: ITfCategoryMgr =
                 CoCreateInstance(&CLSID_TF_CategoryMgr, None, CLSCTX_INPROC_SERVER)?;
 
-            for cat in Self::CATEGORIES.iter() {
-                catmgr.RegisterCategory(&GUID_TEXT_SERVICE, cat, &GUID_TEXT_SERVICE)?;
+            let mut has_error = false;
+
+            for cat in &Self::CATEGORIES {
+                let result = catmgr.RegisterCategory(&GUID_TEXT_SERVICE, cat, &GUID_TEXT_SERVICE);
+                if let Err(e) = result {
+                    tracing::error!("Failed to register category {:?}: {:?}", cat, e);
+                    has_error = true;
+                }
+            }
+
+            if has_error {
+                anyhow::bail!("Failed to register one or more categories");
             }
 
             Ok(())
@@ -119,8 +129,18 @@ impl CategoryMgr {
             let catmgr: ITfCategoryMgr =
                 CoCreateInstance(&CLSID_TF_CategoryMgr, None, CLSCTX_INPROC_SERVER)?;
 
-            for cat in Self::CATEGORIES.iter() {
-                catmgr.UnregisterCategory(&GUID_TEXT_SERVICE, cat, &GUID_TEXT_SERVICE)?;
+            let mut has_error = false;
+
+            for cat in &Self::CATEGORIES {
+                let result = catmgr.UnregisterCategory(&GUID_TEXT_SERVICE, cat, &GUID_TEXT_SERVICE);
+                if let Err(e) = result {
+                    has_error = true;
+                    tracing::error!("Failed to unregister category {:?}: {:?}", cat, e);
+                }
+            }
+
+            if has_error {
+                anyhow::bail!("Failed to unregister one or more categories");
             }
 
             Ok(())

@@ -1,17 +1,20 @@
 use std::collections::HashMap;
 
 use crate::globals::{DllModule, GUID_DISPLAY_ATTRIBUTE};
+use crate::tsf::compartment;
 
 use super::text_service::TextService_Impl;
+use windows::Win32::UI::TextServices::ITfCompartmentMgr;
 use windows::{
-    core::Interface as _,
+    core::{Interface as _, GUID},
     Win32::{
         Foundation::BOOL,
         System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER},
         UI::TextServices::{
-            CLSID_TF_CategoryMgr, ITfCategoryMgr, ITfKeyEventSink, ITfKeystrokeMgr,
-            ITfLangBarItemButton, ITfLangBarItemMgr, ITfSource, ITfTextInputProcessorEx_Impl,
-            ITfTextInputProcessor_Impl, ITfThreadMgr, ITfThreadMgrEventSink,
+            CLSID_TF_CategoryMgr, ITfCategoryMgr, ITfCompartmentEventSink, ITfKeyEventSink,
+            ITfKeystrokeMgr, ITfLangBarItemButton, ITfLangBarItemMgr, ITfSource,
+            ITfTextInputProcessorEx_Impl, ITfTextInputProcessor_Impl, ITfThreadMgr,
+            ITfThreadMgrEventSink,
         },
     },
 };
@@ -80,6 +83,24 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
                 .AddItem(&this_lang_bar)?;
         }
 
+        // コンパートメントの初期化
+        tracing::debug!("Initialize compartments");
+        let compartment_mgr = thread_mgr.cast::<ITfCompartmentMgr>()?;
+        let compartment_sink = self.this::<ITfCompartmentEventSink>()?;
+
+        {
+            let mut map = self.compartments.borrow_mut();
+            for &guid in compartment::WATCHED_COMPARTMENTS {
+                tracing::debug!("AdviseCompartmentEventSink: {:?}", guid);
+                let entry = compartment::advise_compartment_sink(
+                    &compartment_mgr,
+                    &compartment_sink,
+                    &guid,
+                )?;
+                map.insert(guid, entry);
+            }
+        }
+
         tracing::debug!("Activate success");
 
         Ok(())
@@ -120,6 +141,21 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
             if let Some(cookie) = self.thread_mgr_event_sink_cookie.take() {
                 unsafe {
                     thread_mgr.cast::<ITfSource>()?.UnadviseSink(cookie)?;
+                }
+            }
+        }
+
+        // コンパートメントの監視を解除し、クリーンアップ
+        tracing::debug!("UnadviseCompartmentEventSink");
+        if let Ok(thread_mgr) = &thread_mgr {
+            let entries: Vec<(GUID, compartment::CompartmentEntry)> =
+                self.compartments.borrow_mut().drain().collect();
+            let mgr = thread_mgr.cast::<ITfCompartmentMgr>().ok();
+
+            for (guid, entry) in entries {
+                compartment::unadvise_compartment_sink(&entry);
+                if let Some(mgr) = &mgr {
+                    let _ = compartment::clear_compartment(mgr, self.tid.get(), &guid);
                 }
             }
         }

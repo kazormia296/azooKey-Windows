@@ -10,16 +10,17 @@ use windows::{
         Foundation::{BOOL, E_NOINTERFACE},
         System::Com::{IClassFactory, IClassFactory_Impl},
         UI::TextServices::{
-            ITfCompositionSink, ITfDisplayAttributeProvider, ITfKeyEventSink, ITfLangBarItem,
-            ITfLangBarItemButton, ITfLangBarItemSink, ITfSource, ITfTextInputProcessor,
-            ITfTextInputProcessorEx, ITfTextLayoutSink, ITfThreadMgr, ITfThreadMgrEventSink,
+            ITfCompartmentEventSink, ITfCompositionSink, ITfDisplayAttributeProvider,
+            ITfKeyEventSink, ITfLangBarItem, ITfLangBarItemButton, ITfLangBarItemSink,
+            ITfSource, ITfTextInputProcessor, ITfTextInputProcessorEx, ITfTextLayoutSink,
+            ITfThreadMgr, ITfThreadMgrEventSink,
         },
     },
 };
 
 use anyhow::{Context, Result};
 
-use crate::{engine::input_mode::InputMode, globals::DllModule};
+use crate::{engine::input_mode::InputMode, globals::DllModule, tsf::compartment::CompartmentEntry};
 
 use super::context::ContextManager;
 
@@ -35,7 +36,8 @@ use super::context::ContextManager;
     ITfDisplayAttributeProvider,
     ITfLangBarItem,
     ITfLangBarItemButton,
-    ITfSource
+    ITfSource,
+    ITfCompartmentEventSink
 )]
 pub struct TextService {
     this: Cell<Option<ITfTextInputProcessor>>,
@@ -46,6 +48,7 @@ pub struct TextService {
     pub input_mode: Cell<InputMode>,
     pub lang_bar_item_sink: Cell<Option<ITfLangBarItemSink>>,
     pub contexts: RefCell<ContextManager>,
+    pub compartments: RefCell<HashMap<GUID, CompartmentEntry>>,
 }
 
 impl std::fmt::Debug for TextService {
@@ -63,6 +66,8 @@ impl std::fmt::Debug for TextService {
         let lang_bar_item_sink = self.lang_bar_item_sink.take();
         s.field("lang_bar_item_sink", &lang_bar_item_sink);
         self.lang_bar_item_sink.set(lang_bar_item_sink);
+        let keys: Vec<GUID> = self.compartments.borrow().keys().copied().collect();
+        s.field("compartments", &keys);
         s.finish_non_exhaustive()
     }
 }

@@ -1,4 +1,5 @@
 pub(super) mod composition_sink;
+pub(super) mod compartment;
 pub(super) mod context;
 pub(super) mod display_attribute;
 pub(super) mod key_event_sink;

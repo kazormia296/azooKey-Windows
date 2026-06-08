@@ -1,32 +1,26 @@
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
-    ffi::c_void,
 };
 
 use windows::{
-    core::{implement, AsImpl, IUnknown, Interface, GUID},
-    Win32::{
-        Foundation::{BOOL, E_NOINTERFACE},
-        System::Com::{IClassFactory, IClassFactory_Impl},
-        UI::TextServices::{
-            ITfCompartmentEventSink, ITfCompositionSink, ITfDisplayAttributeProvider,
-            ITfKeyEventSink, ITfLangBarItem, ITfLangBarItemButton, ITfLangBarItemSink,
-            ITfSource, ITfTextInputProcessor, ITfTextInputProcessorEx, ITfTextLayoutSink,
-            ITfThreadMgr, ITfThreadMgrEventSink,
-        },
+    core::{implement, AsImpl, Interface, GUID},
+    Win32::UI::TextServices::{
+        ITfCompartmentEventSink, ITfCompositionSink, ITfDisplayAttributeProvider,
+        ITfKeyEventSink, ITfLangBarItem, ITfLangBarItemButton, ITfLangBarItemSink,
+        ITfSource, ITfTextInputProcessor, ITfTextInputProcessorEx, ITfTextLayoutSink,
+        ITfThreadMgr, ITfThreadMgrEventSink,
     },
 };
 
 use anyhow::{Context, Result};
 
-use crate::{engine::input_mode::InputMode, globals::DllModule, tsf::compartment::CompartmentEntry};
+use crate::{engine::input_mode::InputMode, tsf::compartment::CompartmentEntry};
 
 use super::context::ContextManager;
 
 #[derive(Default)]
 #[implement(
-    IClassFactory,
     ITfTextInputProcessor,
     ITfTextInputProcessorEx,
     ITfKeyEventSink,
@@ -69,57 +63,6 @@ impl std::fmt::Debug for TextService {
         let keys: Vec<GUID> = self.compartments.borrow().keys().copied().collect();
         s.field("compartments", &keys);
         s.finish_non_exhaustive()
-    }
-}
-
-impl IClassFactory_Impl for TextService_Impl {
-    #[macros::anyhow]
-    fn CreateInstance(
-        &self,
-        punkouter: Option<&IUnknown>,
-        riid: *const GUID,
-        ppvobject: *mut *mut c_void,
-    ) -> Result<()> {
-        let riid = unsafe { *riid };
-        let ppvobject = unsafe { &mut *ppvobject };
-
-        *ppvobject = std::ptr::null_mut();
-
-        if punkouter.is_some() {
-            return Err(windows::core::Error::from_hresult(E_NOINTERFACE).into());
-        }
-
-        unsafe {
-            *ppvobject = match riid {
-                ITfTextInputProcessor::IID => {
-                    std::mem::transmute::<ITfTextInputProcessor, *mut c_void>(
-                        TextService::create::<ITfTextInputProcessor>()?,
-                    )
-                }
-                ITfTextInputProcessorEx::IID => {
-                    std::mem::transmute::<ITfTextInputProcessorEx, *mut c_void>(
-                        TextService::create::<ITfTextInputProcessorEx>()?,
-                    )
-                }
-                _ => {
-                    return Err(windows::core::Error::from_hresult(E_NOINTERFACE).into());
-                }
-            };
-        }
-
-        Ok(())
-    }
-
-    #[macros::anyhow]
-    fn LockServer(&self, flock: BOOL) -> Result<()> {
-        let mut dll_instance = DllModule::get()?;
-        if flock.into() {
-            dll_instance.add_ref();
-        } else {
-            dll_instance.release();
-        }
-
-        Ok(())
     }
 }
 

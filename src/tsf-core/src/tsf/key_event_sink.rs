@@ -1,8 +1,10 @@
+use std::{cell::Cell, rc::Rc};
+
 use windows::{
     core::GUID,
     Win32::{
         Foundation::{BOOL, LPARAM, WPARAM},
-        UI::TextServices::{ITfContext, ITfKeyEventSink_Impl},
+        UI::TextServices::{ITfComposition, ITfCompositionSink, ITfContext, ITfKeyEventSink_Impl},
     },
 };
 
@@ -30,19 +32,42 @@ impl ITfKeyEventSink_Impl for TextService_Impl {
     ) -> Result<BOOL> {
         let context = match pic {
             Some(ctx) => ctx,
-            None => return Ok(windows::Win32::Foundation::BOOL::from(false)),
+            None => return Ok(false.into()),
         };
 
         let tid = self.tid.get();
         if tid == 0 {
-            return Ok(windows::Win32::Foundation::BOOL::from(false));
+            return Ok(false.into());
         }
 
-        let edit_result = request_edit_session(context, tid, |editor| {
-            editor.insert_text("Hello")?;
+        let context_manager = self.contexts.borrow();
+        let context_state = match context_manager.find(&context) {
+            Some(state) => state,
+            None => return Ok(false.into()),
+        };
 
+        let composition: Rc<Cell<Option<ITfComposition>>> = Rc::new(Cell::new(None));
+        let composition_ref = composition.clone();
+
+        let composition_sink: ITfCompositionSink = match self.this() {
+            Ok(sink) => sink,
+            // TODO: tracingする
+            Err(_) => return Ok(false.into()),
+        };
+
+        let edit_result = request_edit_session(context, tid, move |editor| {
+            let range = editor.get_insertion_range()?;
+            let composition = editor.start_composition(&range, &composition_sink)?;
+
+            editor.set_composition_text(&composition, "ABC")?;
+
+            composition_ref.set(Some(composition));
             Ok(())
         });
+
+        if let Some(comp) = composition.take() {
+            context_state.composition.set(Some(comp));
+        }
 
         match edit_result {
             Ok(_) => Ok(true.into()),

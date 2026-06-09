@@ -33,7 +33,11 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
         let thread_mgr = ptim.context("Thread manager is null")?;
         self.thread_mgr.set(Some(thread_mgr.clone()));
 
-        // COM インターフェースを取得（借用不要）
+        if let Ok(context) = self.get_active_context() {
+            self.contexts.borrow_mut().register(&context);
+        }
+
+        // COM インターフェースを取得
         let this_key_event = self.this::<ITfKeyEventSink>()?;
         let this_event_sink = self.this::<ITfThreadMgrEventSink>()?;
         let this_lang_bar = self.this::<ITfLangBarItemButton>()?;

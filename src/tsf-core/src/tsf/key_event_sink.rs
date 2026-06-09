@@ -1,27 +1,14 @@
-/// キーボードのイベントを取得するイベントリスナー
-///
-/// OnTestKeyDownとOnKeyDown, OnTestKeyUpとOnKeyUpの4種類の関数が存在する。
-///
-/// OnTestKeyDownでTRUEを返した場合にのみ、OnKeyDownが呼ばれて、TextServiceがキーボードイベントを使ってあれこれできるようになる。
-/// このrepoでは、
-/// 1. ショートカットキーが押されているとき
-/// 2. 漢字変換モードではないとき（つまり英語直接入力モードのとき）
-/// はOnTestKeyDownを呼ぶようにしている。
-///
-/// OnTestKeyUpとOnKeyUpも同様だが、KeyUpをトリガーとしたい操作が今のところ存在しないため、常にFALSEを返すようにしている。
-///
-/// OnPreservedKeyやOnSetFocusは使われる条件がよくわかっていない。
 use windows::{
-    core::GUID,
     Win32::{
         Foundation::{BOOL, LPARAM, WPARAM},
         UI::TextServices::{ITfContext, ITfKeyEventSink_Impl},
-    },
+    }, core::GUID
 };
 
-use super::text_service::TextService_Impl;
+use super::{edit_session::request_edit_session, text_service::TextService_Impl};
 
 // sink (aka event listener) for key events
+// 返り値はS_OKのみであることに注意
 impl ITfKeyEventSink_Impl for TextService_Impl {
     #[macros::anyhow(ignore_with = false.into())]
     #[tracing::instrument]
@@ -31,22 +18,45 @@ impl ITfKeyEventSink_Impl for TextService_Impl {
         _wparam: WPARAM,
         _lparam: LPARAM,
     ) -> Result<BOOL> {
-        // this function checks if the key event will be handled by "OnKeyUp" function
-        // so we need to return TRUE if we want to handle the key event
-        Ok(false.into())
+        Ok(true.into())
     }
 
     #[macros::anyhow(ignore_with = false.into())]
     #[tracing::instrument]
     fn OnKeyDown(
         &self,
-        _pic: Option<&ITfContext>,
+        pic: Option<&ITfContext>,
         _wparam: WPARAM,
         _lparam: LPARAM,
     ) -> Result<BOOL> {
-        // this function is called when a key is pressed
-        // we can handle key events here
-        Ok(false.into())
+        let context = match pic {
+            Some(ctx) => ctx,
+            None => return Ok(windows::Win32::Foundation::BOOL::from(false)),
+        };
+
+        tracing::debug!("gotten context");
+
+        let tid = self.tid.get();
+        if tid == 0 {
+            return Ok(windows::Win32::Foundation::BOOL::from(false));
+        }
+
+        let edit_result = request_edit_session(context, tid, |editor| {
+            editor.insert_text("Hello")?;
+
+            Ok(())
+        });
+
+        match edit_result {
+            Ok(_) => {
+                Ok(true.into())
+            }
+            Err(e) => {
+                // エラーを返す代わりに、falseを返す
+                tracing::error!("request_edit_session failed (safe rollback): {:?}", e);
+                Ok(false.into())
+            }
+        }
     }
 
     #[macros::anyhow(ignore_with = false.into())]

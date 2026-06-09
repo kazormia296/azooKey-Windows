@@ -83,6 +83,16 @@ pub unsafe extern "system" fn DllGetClassObject(
     // https://zenn.dev/link/comments/d918e46723da80
     tracing::debug!("DllGetClassObject");
 
+    // デバッグのためにDLLをアタッチできるアプリを制限する
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_name) = exe_path.file_name() {
+            let exe_name = exe_name.to_string_lossy().to_lowercase();
+            if exe_name != "notepad.exe" {
+                return CLASS_E_CLASSNOTAVAILABLE
+            }
+        }
+    }
+
     let result: anyhow::Result<()> = (|| {
         let rclsid = unsafe { *rclsid };
         let riid = unsafe { *riid };

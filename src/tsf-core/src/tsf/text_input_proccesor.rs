@@ -72,7 +72,7 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
             map.insert(GUID_DISPLAY_ATTRIBUTE, atom);
             map
         };
-        *self.display_attribute_atom.borrow_mut() = atom_map;
+        self.display_attribute_atom.set(atom_map);
 
         tracing::debug!("Initialize langbar");
         unsafe {
@@ -157,12 +157,12 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
             }
         }
 
-        // drain all contexts (Drop handles sink cleanup automatically)
+        // clear all contexts (Drop handles sink cleanup automatically)
         tracing::debug!("DropContexts");
-        self.contexts.borrow_mut().drain();
+        self.contexts.borrow_mut().clear();
 
         // clear display attribute
-        self.display_attribute_atom.borrow_mut().clear();
+        self.display_attribute_atom.set(HashMap::new());
 
         self.tid.set(0);
         self.thread_mgr.set(None);

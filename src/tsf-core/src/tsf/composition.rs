@@ -7,12 +7,12 @@ impl ITfCompositionSink_Impl for TextService_Impl {
     fn OnCompositionTerminated(
         &self,
         _ecwrite: u32,
-        composition: Option<&ITfComposition>,
+        _composition: Option<&ITfComposition>,
     ) -> Result<()> {
         tracing::debug!("OnCompositionTerminated");
-        if let Some(_) = composition {
-            if let Some(state) = self.contexts.borrow_mut().active_mut() {
-                state.composition = None;
+        if let Ok(ctx) = self.get_active_context() {
+            if let Some(state) = self.contexts.borrow().find(&ctx) {
+                state.set_composition(None);
             }
         }
         Ok(())

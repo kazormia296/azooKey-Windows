@@ -32,7 +32,7 @@ impl ITfThreadMgrEventSink_Impl for TextService_Impl {
     #[macros::anyhow]
     fn OnPushContext(&self, pic: Option<&ITfContext>) -> Result<()> {
         if let Some(ctx) = pic {
-            self.contexts.borrow_mut().push(ctx.clone());
+            self.contexts.borrow_mut().register(ctx);
         }
         Ok(())
     }
@@ -40,7 +40,7 @@ impl ITfThreadMgrEventSink_Impl for TextService_Impl {
     #[macros::anyhow]
     fn OnPopContext(&self, pic: Option<&ITfContext>) -> Result<()> {
         if let Some(ctx) = pic {
-            self.contexts.borrow_mut().pop(ctx);
+            self.contexts.borrow_mut().unregister(ctx)?;
         }
         Ok(())
     }

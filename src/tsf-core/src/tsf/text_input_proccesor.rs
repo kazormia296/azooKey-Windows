@@ -23,7 +23,6 @@ use anyhow::Context;
 
 impl ITfTextInputProcessor_Impl for TextService_Impl {
     #[macros::anyhow]
-    #[tracing::instrument]
     fn Activate(&self, ptim: Option<&ITfThreadMgr>, tid: u32) -> Result<()> {
         tracing::debug!("Activated with tid: {tid}");
 
@@ -51,10 +50,9 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
 
         tracing::debug!("AdviseThreadMgrEventSink");
         let cookie = unsafe {
-            thread_mgr.cast::<ITfSource>()?.AdviseSink(
-                &ITfThreadMgrEventSink::IID,
-                &this_event_sink,
-            )?
+            thread_mgr
+                .cast::<ITfSource>()?
+                .AdviseSink(&ITfThreadMgrEventSink::IID, &this_event_sink)?
         };
         self.thread_mgr_event_sink_cookie.set(Some(cookie));
 
@@ -107,7 +105,6 @@ impl ITfTextInputProcessor_Impl for TextService_Impl {
     }
 
     #[macros::anyhow]
-    #[tracing::instrument]
     fn Deactivate(&self) -> Result<()> {
         tracing::debug!("Deactivated");
 

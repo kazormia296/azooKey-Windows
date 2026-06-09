@@ -88,7 +88,7 @@ pub unsafe extern "system" fn DllGetClassObject(
         if let Some(exe_name) = exe_path.file_name() {
             let exe_name = exe_name.to_string_lossy().to_lowercase();
             if exe_name != "notepad.exe" {
-                return CLASS_E_CLASSNOTAVAILABLE
+                return CLASS_E_CLASSNOTAVAILABLE;
             }
         }
     }
@@ -107,9 +107,9 @@ pub unsafe extern "system" fn DllGetClassObject(
         }
 
         *ppv = match riid {
-            IUnknown::IID => {
-                std::mem::transmute::<IUnknown, *mut c_void>(IUnknown::from(TextServiceFactory::default()))
-            }
+            IUnknown::IID => std::mem::transmute::<IUnknown, *mut c_void>(IUnknown::from(
+                TextServiceFactory::default(),
+            )),
             IClassFactory::IID => std::mem::transmute::<IClassFactory, *mut c_void>(
                 IClassFactory::from(TextServiceFactory::default()),
             ),

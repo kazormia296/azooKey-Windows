@@ -2,13 +2,18 @@ use std::cell::RefCell;
 
 use anyhow::Result;
 use windows::{
-    core::{Interface, implement},
-    Win32::UI::TextServices::{
-        ITfContext, ITfEditSession, ITfEditSession_Impl, ITfInsertAtSelection,
-        INSERT_TEXT_AT_SELECTION_FLAGS, TF_ES_READWRITE, TF_ES_SYNC,
+    core::implement,
+    Win32::{
+        Foundation::E_FAIL,
+        UI::TextServices::{
+            ITfContext, ITfEditSession, ITfEditSession_Impl, ITfRange, TF_ANCHOR_START,
+            TF_ES_READWRITE, TF_ES_SYNC,
+        },
     },
 };
- 
+
+// 帰ったとき用のメモ
+//
 // # EditSessionに必要な関数
 // - insert_text (実装済み)
 // - delete_backward (実装済み)
@@ -36,17 +41,71 @@ impl<'a> ContextEditor<'a> {
     }
 
     /// Compositionを作成せずに文字列をinsertする
+    #[macros::anyhow]
     pub fn insert_text(&self, text: &str) -> Result<()> {
-        let insert_at: ITfInsertAtSelection = self.context.cast()?;
-        let wide = text.to_wide_16_unpadded();
+        // TSFにはITfInsertAtSelectionというものがあり、それを使ってInsertすることも可能。
+        // その場合、以下のようなコードを書くことになる
+        //
+        // ```rust
+        // let insert_at: ITfInsertAtSelection = self.context.cast()?;
+        // let wide = text.to_wide_16_unpadded();
+        // unsafe {
+        //     insert_at.InsertTextAtSelection(self.ec, INSERT_TEXT_AT_SELECTION_FLAGS(0), &wide)?;
+        // }
+        // ```
+        //
+        // ただし、InsertTextAtSelectionのフラグとしてTF_IAS_NOQUERYを利用してはならない。
+        // TF_IAS_NOQUERYを利用すると、返り値のITfRangeの代わりにnull ptrが返ってくる。
+        // それをRustがDropしようとしてアクセス違反でクラッシュしてしまうからである。
         unsafe {
-            // WARNING: INSERT_TEXT_AT_SELECTIONにおいて、TF_IAS_NOQUERYの代わりに0を指定する必要がある
-            // NOQUERYを指定すると、返り値のITfRangeの代わりにNULLが返されるが、それをRustがDropしようとしてNull Pointerへのアクセスが発生しクラッシュするする
-            insert_at.InsertTextAtSelection(self.ec, INSERT_TEXT_AT_SELECTION_FLAGS(0), &wide)?;
+            if let Some(selection) = self.get_selection()? {
+                let wide = text.to_wide_16_unpadded();
+                selection.SetText(self.ec, 0, &wide)?;
+            }
         }
-
-        // insert_textを行う場合、notepad.exeなどのアプリではカーソルの位置が更新されないので、set_selection()でカーソルの位置を変更する必要がある。
         Ok(())
+    }
+
+    #[macros::anyhow]
+    pub fn delete_backward(&self, count: i32) -> Result<()> {
+        unsafe {
+            let selection = match self.get_selection()? {
+                Some(sel) => sel,
+                None => return Ok(()),
+            };
+
+            let range = selection.Clone()?;
+            range.Collapse(self.ec, TF_ANCHOR_START)?;
+
+            let mut shifted = 0i32;
+            range.ShiftStart(self.ec, -count, &mut shifted, std::ptr::null())?;
+
+            if range.IsEmpty(self.ec)?.as_bool() {
+                return Ok(());
+            }
+
+            range.SetText(self.ec, 0, &[])?;
+        }
+        Ok(())
+    }
+
+    #[macros::anyhow(fail_with = E_FAIL)]
+    pub fn get_selection(&self) -> Result<Option<ITfRange>> {
+        unsafe {
+            let mut fetched = 0u32;
+            let mut selection = [windows::Win32::UI::TextServices::TF_SELECTION::default(); 1];
+            self.context
+                .GetSelection(self.ec, 0, &mut selection, &mut fetched)?;
+
+            if fetched == 0 {
+                return Ok(None);
+            }
+
+            let [selection_item] = selection;
+            let range = std::mem::ManuallyDrop::into_inner(selection_item.range);
+
+            Ok(range)
+        }
     }
 }
 
@@ -73,7 +132,7 @@ impl ITfEditSession_Impl for EditSession_Impl {
     fn DoEditSession(&self, ec: u32) -> Result<()> {
         if let Some(callback) = self.callback.borrow_mut().take() {
             let editor = ContextEditor::new(&self.context, ec);
-            callback(&editor)?;
+            let _ = callback(&editor);
         }
         Ok(())
     }

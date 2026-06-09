@@ -8,7 +8,7 @@ use windows::{
 
 use anyhow::Result;
 
-use super::{text_service::TextService_Impl, text_service::TextService};
+use super::{text_service::TextService, text_service::TextService_Impl};
 
 impl ITfTextLayoutSink_Impl for TextService_Impl {
     // テキストの位置が変化したこっと期の動作を指定するイベントリスナー的なもの

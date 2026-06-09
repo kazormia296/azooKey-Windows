@@ -6,10 +6,9 @@ use std::{
 use windows::{
     core::{implement, AsImpl, Interface, GUID},
     Win32::UI::TextServices::{
-        ITfCompartmentEventSink, ITfCompositionSink, ITfDisplayAttributeProvider,
-        ITfKeyEventSink, ITfLangBarItem, ITfLangBarItemButton, ITfLangBarItemSink,
-        ITfSource, ITfTextInputProcessor, ITfTextInputProcessorEx, ITfTextLayoutSink,
-        ITfThreadMgr, ITfThreadMgrEventSink,
+        ITfCompartmentEventSink, ITfCompositionSink, ITfDisplayAttributeProvider, ITfKeyEventSink,
+        ITfLangBarItem, ITfLangBarItemButton, ITfLangBarItemSink, ITfSource, ITfTextInputProcessor,
+        ITfTextInputProcessorEx, ITfTextLayoutSink, ITfThreadMgr, ITfThreadMgrEventSink,
     },
 };
 
@@ -50,7 +49,10 @@ impl std::fmt::Debug for TextService {
         let mut s = f.debug_struct("TextService");
         s.field("tid", &self.tid.get());
         s.field("input_mode", &self.input_mode.get());
-        s.field("thread_mgr_event_sink_cookie", &self.thread_mgr_event_sink_cookie.get());
+        s.field(
+            "thread_mgr_event_sink_cookie",
+            &self.thread_mgr_event_sink_cookie.get(),
+        );
         let this = self.this.take();
         s.field("this", &this);
         self.this.set(this);

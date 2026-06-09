@@ -1,8 +1,8 @@
 use windows::{
     core::{Interface, Result, GUID},
     Win32::UI::TextServices::{
-        ITfCompartment, ITfCompartmentEventSink, ITfCompartmentEventSink_Impl,
-        ITfCompartmentMgr, ITfSource, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE,
+        ITfCompartment, ITfCompartmentEventSink, ITfCompartmentEventSink_Impl, ITfCompartmentMgr,
+        ITfSource, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE,
     },
 };
 
@@ -14,9 +14,7 @@ pub struct CompartmentEntry {
     pub cookie: u32,
 }
 
-pub const WATCHED_COMPARTMENTS: &[GUID] = &[
-    GUID_COMPARTMENT_KEYBOARD_OPENCLOSE,
-];
+pub const WATCHED_COMPARTMENTS: &[GUID] = &[GUID_COMPARTMENT_KEYBOARD_OPENCLOSE];
 
 pub fn advise_compartment_sink(
     mgr: &ITfCompartmentMgr,
@@ -27,7 +25,10 @@ pub fn advise_compartment_sink(
         let compartment = mgr.GetCompartment(guid)?;
         let source: ITfSource = compartment.cast()?;
         let cookie = source.AdviseSink(&ITfCompartmentEventSink::IID, sink)?;
-        Ok(CompartmentEntry { compartment, cookie })
+        Ok(CompartmentEntry {
+            compartment,
+            cookie,
+        })
     }
 }
 

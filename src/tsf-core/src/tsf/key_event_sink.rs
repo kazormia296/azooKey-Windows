@@ -1,8 +1,9 @@
 use windows::{
+    core::GUID,
     Win32::{
         Foundation::{BOOL, LPARAM, WPARAM},
         UI::TextServices::{ITfContext, ITfKeyEventSink_Impl},
-    }, core::GUID
+    },
 };
 
 use super::{edit_session::request_edit_session, text_service::TextService_Impl};
@@ -11,7 +12,6 @@ use super::{edit_session::request_edit_session, text_service::TextService_Impl};
 // 返り値はS_OKのみであることに注意
 impl ITfKeyEventSink_Impl for TextService_Impl {
     #[macros::anyhow(ignore_with = false.into())]
-    #[tracing::instrument]
     fn OnTestKeyDown(
         &self,
         _pic: Option<&ITfContext>,
@@ -22,7 +22,6 @@ impl ITfKeyEventSink_Impl for TextService_Impl {
     }
 
     #[macros::anyhow(ignore_with = false.into())]
-    #[tracing::instrument]
     fn OnKeyDown(
         &self,
         pic: Option<&ITfContext>,
@@ -33,8 +32,6 @@ impl ITfKeyEventSink_Impl for TextService_Impl {
             Some(ctx) => ctx,
             None => return Ok(windows::Win32::Foundation::BOOL::from(false)),
         };
-
-        tracing::debug!("gotten context");
 
         let tid = self.tid.get();
         if tid == 0 {
@@ -48,9 +45,7 @@ impl ITfKeyEventSink_Impl for TextService_Impl {
         });
 
         match edit_result {
-            Ok(_) => {
-                Ok(true.into())
-            }
+            Ok(_) => Ok(true.into()),
             Err(e) => {
                 // エラーを返す代わりに、falseを返す
                 tracing::error!("request_edit_session failed (safe rollback): {:?}", e);

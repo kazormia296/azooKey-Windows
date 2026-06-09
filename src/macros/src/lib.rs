@@ -1,9 +1,11 @@
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{quote, quote_spanned};
 use syn::parse::{Parse, ParseStream};
+use syn::spanned::Spanned;
+use syn::visit_mut::VisitMut;
 use syn::{
-    parse_macro_input, Error, Expr, GenericArgument, Ident, ItemFn, PathArguments, ReturnType,
-    Token, Type,
+    parse_macro_input, Error, Expr, ExprTry, GenericArgument, Ident, ItemFn, PathArguments,
+    ReturnType, Token, Type,
 };
 
 enum MacroArgs {
@@ -29,7 +31,7 @@ impl Parse for MacroArgs {
         } else {
             Err(Error::new(
                 key.span(),
-                "Expected 'default' or 'err' parameter (e.g., #[anyhow(ignore_with = BOOL(0))] or #[anyhow(fail_with = E_FAIL)])"
+                "Expected 'ignore_with' or 'fail_with' parameter (e.g., #[anyhow(ignore_with = BOOL(0))] or #[anyhow(fail_with = E_FAIL)])"
             ))
         }
     }
@@ -70,49 +72,62 @@ fn extract_result_type(return_type: &ReturnType) -> Result<&Type, TokenStream> {
     }
 }
 
+// `?` 演算子を検出して書き換えるためのビジター
+struct TryRewriter<'a> {
+    fallback_arm: &'a proc_macro2::TokenStream,
+}
+
+impl<'a> VisitMut for TryRewriter<'a> {
+    fn visit_expr_mut(&mut self, expr: &mut Expr) {
+        // 先に子要素（ネストされた `?` など）を再帰的に書き換える
+        if let Expr::Try(ExprTry {
+            expr: inner_expr,
+            question_token,
+            ..
+        }) = expr
+        {
+            self.visit_expr_mut(inner_expr);
+
+            let question_span = question_token.span();
+            let fallback_arm = self.fallback_arm;
+
+            // `?` トークンの Span を付与したコードへ書き換える
+            // これにより、ここから出力される file!() や line!() などのロギング位置が
+            // 元コードの `?` が記述されていた位置と一致するようになります。
+            *expr = syn::parse2(quote_spanned! { question_span =>
+                match #inner_expr {
+                    Ok(v) => v,
+                    Err(err) => {
+                        let e = ::anyhow::Error::from(err);
+                        ::tracing::error!("Error occurred: {:#?}", e);
+                        if let Some(win_err) = e.downcast_ref::<::windows::core::Error>() {
+                            return Err(win_err.clone());
+                        } else {
+                            return #fallback_arm;
+                        }
+                    }
+                }
+            })
+            .unwrap();
+        } else {
+            syn::visit_mut::visit_expr_mut(self, expr);
+        }
+    }
+
+    // クロージャ、非同期ブロック、内部定義関数の中身は
+    // シグネチャの戻り値型と一致しなくなるため、書き換え処理をスキップ（除外）する
+    fn visit_expr_closure_mut(&mut self, _i: &mut syn::ExprClosure) {}
+    fn visit_expr_async_mut(&mut self, _i: &mut syn::ExprAsync) {}
+    fn visit_item_mut(&mut self, _i: &mut syn::Item) {}
+}
+
 #[proc_macro_attribute]
-/// `anyhow::Result` を `windows::core::Result` に変換する属性マクロ。
-///
-/// このマクロは、関数の戻り値が `anyhow::Result<T>` であることを前提としています。関数内で発生したエラーは `anyhow::Error` としてキャッチされ、以下のルールに従って `windows::core::Result<T>` に変換されます。
-/// - `anyhow::Error` のチェーンに `windows::core::Error` が含まれている場合、そのエラーが優先的に返されます。
-/// - それ以外のエラーは、マクロ引数に基づいて以下のように処理されます。
-///   - `#[anyhow]`（引数なし）: `Ok(Default::default())` を返す（ただし、戻り値の型が `()` 以外の場合はコンパイルエラー）。
-///   - `#[anyhow(fallback_to_default = EXPR)]`: `Ok(EXPR)` を返す（ただし、戻り値の型が `()` 以外の場合はコンパイルエラー）。
-///   - `#[anyhow(fallback_err = EXPR)]`: `Err(windows::core::Error::from(EXPR))` を返す（ただし、戻り値の型が `()` 以外の場合はコンパイルエラー）。    
-///
-/// このマクロでは、`windows::core::Error`は返すようにしていますが、そうでないエラーは基本的にログに記録して無視する形になります。これは、TSF Application側が適切なエラーハンドリングを行っていない場合に予期せぬエラーを避けるためです。
-///
-/// 例:
-/// ```rust
-/// #[anyhow]
-/// fn example() -> Result<()> {
-///     // 何らかの処理
-///     Ok(())
-/// }
-///
-/// #[anyhow(fallback_to_default = BOOL(0))]
-/// fn example_with_default() -> Result<BOOL> {
-///     // 何らかの処理
-///     Ok(BOOL(1))
-/// }
-///
-/// #[anyhow(fallback_err = E_FAIL)]
-/// fn example_with_err() -> Result<()> {
-///     // 何らかの処理
-///     Ok(())
-/// }
-/// ```
 pub fn anyhow(attr: TokenStream, input: TokenStream) -> TokenStream {
     // parse the input macro arguments
     let args = parse_macro_input!(attr as MacroArgs);
 
     // parse the input function
     let input_fn = parse_macro_input!(input as ItemFn);
-
-    // get the function name, inputs, and body
-    let fn_name = &input_fn.sig.ident;
-    let fn_inputs = &input_fn.sig.inputs;
-    let fn_body = &input_fn.block;
 
     // check if the function has a return type
     let output = match &input_fn.sig.output {
@@ -132,13 +147,11 @@ pub fn anyhow(attr: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     // Safety Guardrail:
-    // If the return type is not `()`, we must enforce developers to specify either `ok = ...` or `fallback_err = ...`
-    // to prevent accidental silent failure with unhandled default values.
     if !is_unit_type(output) {
         if let MacroArgs::Default = args {
             return Error::new_spanned(
                 output,
-                "For return types other than Result<()>, you must explicitly specify 'ok = ...' or 'fallback_err = ...' as a macro argument (e.g., #[anyhow(ok = BOOL(0))])."
+                "For return types other than Result<()>, you must explicitly specify 'ignore_with = ...' or 'fail_with = ...' as a macro argument (e.g., #[anyhow(ignore_with = BOOL(0))])."
             )
             .to_compile_error()
             .into();
@@ -158,26 +171,20 @@ pub fn anyhow(attr: TokenStream, input: TokenStream) -> TokenStream {
         }
     };
 
-    // generate the new function
+    // 元のシグネチャをベースに関数ボディだけを書き換える
+    let mut modified_fn = input_fn.clone();
+
+    // 関数の戻り値型を強制的に `::windows::core::Result<#output>` に置き換え
+    modified_fn.sig.output = syn::parse2(quote! { -> ::windows::core::Result<#output> }).unwrap();
+
+    // 関数本体のAST（ブロック）を再帰的に走査し、`?` をインラインマッチングに書き換える
+    let mut rewriter = TryRewriter {
+        fallback_arm: &fallback_arm,
+    };
+    rewriter.visit_block_mut(modified_fn.block.as_mut());
+
     let generated = quote! {
-        fn #fn_name(#fn_inputs) -> ::windows::core::Result<#output> {
-            let result: ::anyhow::Result<#output> = (|| #fn_body)();
-
-            match result {
-                Ok(v) => Ok(v),
-                Err(e) => {
-                    ::tracing::error!("Error internally occurred: {:?}", e);
-
-                    // Prioritize propagating the original windows::core::Error if it exists in the anyhow chain
-                    if let Some(win_err) = e.downcast_ref::<::windows::core::Error>() {
-                        Err(win_err.clone())
-                    } else {
-                        // Fallback to the configured behavior for other internal errors
-                        #fallback_arm
-                    }
-                }
-            }
-        }
+        #modified_fn
     };
 
     generated.into()

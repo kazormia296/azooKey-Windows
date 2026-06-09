@@ -1,14 +1,16 @@
 use windows::{
+    core::{BSTR, PCWSTR},
     Win32::{
         Foundation::{BOOL, E_FAIL, E_INVALIDARG, E_NOTIMPL, POINT, RECT},
         UI::{
             TextServices::{
-                GUID_LBI_INPUTMODE, ITfLangBarItem_Impl, ITfLangBarItemButton_Impl, ITfMenu, TF_LANGBARITEMINFO, TF_LBI_ICON, TF_LBI_STYLE_BTN_BUTTON, TF_LBI_TEXT, TF_LBI_TOOLTIP, TfLBIClick
+                ITfLangBarItemButton_Impl, ITfLangBarItem_Impl, ITfMenu, TfLBIClick,
+                GUID_LBI_INPUTMODE, TF_LANGBARITEMINFO, TF_LBI_ICON, TF_LBI_STYLE_BTN_BUTTON,
+                TF_LBI_TEXT, TF_LBI_TOOLTIP,
             },
-            WindowsAndMessaging::{HICON, IMAGE_ICON, LR_DEFAULTCOLOR, LoadImageW},
+            WindowsAndMessaging::{LoadImageW, HICON, IMAGE_ICON, LR_DEFAULTCOLOR},
         },
     },
-    core::{BSTR, PCWSTR},
 };
 
 use anyhow::Context;

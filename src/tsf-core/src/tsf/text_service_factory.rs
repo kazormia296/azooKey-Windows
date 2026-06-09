@@ -1,11 +1,12 @@
 use std::ffi::c_void;
 
 use windows::{
+    core::{implement, IUnknown, Interface, GUID},
     Win32::{
         Foundation::{BOOL, CLASS_E_NOAGGREGATION, E_INVALIDARG, E_NOINTERFACE, E_POINTER},
         System::Com::{IClassFactory, IClassFactory_Impl},
         UI::TextServices::{ITfTextInputProcessor, ITfTextInputProcessorEx},
-    }, core::{GUID, IUnknown, Interface, implement}
+    },
 };
 
 use crate::globals::DllModule;
@@ -28,19 +29,19 @@ impl IClassFactory_Impl for TextServiceFactory_Impl {
         if ppvobject.is_null() {
             return Err(windows::core::Error::from_hresult(E_POINTER).into());
         }
-        
+
         unsafe { *ppvobject = std::ptr::null_mut() };
 
         if riid.is_null() {
             return Err(windows::core::Error::from_hresult(E_INVALIDARG).into());
         }
-    
+
         if punkouter.is_some() {
             return Err(windows::core::Error::from_hresult(CLASS_E_NOAGGREGATION).into());
         }
-    
+
         let riid = unsafe { *riid };
-    
+
         unsafe {
             *ppvobject = match riid {
                 IUnknown::IID | ITfTextInputProcessor::IID => {
@@ -56,7 +57,7 @@ impl IClassFactory_Impl for TextServiceFactory_Impl {
                 }
             };
         }
-    
+
         Ok(())
     }
 

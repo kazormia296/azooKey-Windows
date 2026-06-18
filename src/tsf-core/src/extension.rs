@@ -6,7 +6,6 @@ use windows::{
             RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegSetValueExW, HKEY, KEY_WRITE,
             REG_OPTION_NON_VOLATILE, REG_SZ,
         },
-        UI::Input::KeyboardAndMouse::{GetKeyState, VIRTUAL_KEY},
     },
 };
 
@@ -131,16 +130,5 @@ impl RegKey for HKEY {
                 e => return Err(windows::core::Error::from(e)),
             }
         }
-    }
-}
-
-#[allow(clippy::wrong_self_convention)]
-pub trait VKeyExt {
-    fn is_pressed(self) -> bool;
-}
-
-impl VKeyExt for VIRTUAL_KEY {
-    fn is_pressed(self) -> bool {
-        unsafe { GetKeyState(self.0 as i32) as u16 & 0x8000 != 0 }
     }
 }

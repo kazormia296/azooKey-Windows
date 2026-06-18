@@ -18,16 +18,6 @@ use windows_core::VARIANT;
 // 帰ったとき用のメモ
 //
 // # EditSessionに必要な関数
-// - insert_text (実装済み)
-// - delete_backward (実装済み)
-// - start_composition
-// - set_composition <- ?
-// - end_composition
-// - set_display_attribute
-// // selectionはrangeを伴うので注意！
-// - get_selection
-// - set_selection
-// - collapse_selection
 // - get_text_before_text
 // - get_text_after_text
 
@@ -173,10 +163,11 @@ impl<'a> ContextEditor<'a> {
     }
 
     #[macros::anyhow]
-    pub fn set_display_attribute(&self, range: &ITfRange, attr_atom: i32) -> Result<()> {
+    pub fn set_display_attribute(&self, range: &ITfRange, attr_atom: u32) -> Result<()> {
         unsafe {
             let property = self.context.GetProperty(&GUID_PROP_ATTRIBUTE)?;
-            let variant = VARIANT::from(attr_atom);
+            let atom: i32 = attr_atom.try_into()?;
+            let variant = VARIANT::from(atom);
 
             property.SetValue(self.ec, range, &variant)?;
         }

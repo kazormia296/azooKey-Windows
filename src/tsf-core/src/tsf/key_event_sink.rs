@@ -8,6 +8,8 @@ use windows::{
     },
 };
 
+use crate::globals::GUID_DISPLAY_ATTRIBUTE;
+
 use super::{edit_session::request_edit_session, text_service::TextService_Impl};
 
 // sink (aka event listener) for key events
@@ -55,11 +57,19 @@ impl ITfKeyEventSink_Impl for TextService_Impl {
             Err(_) => return Ok(false.into()),
         };
 
+        let atom = self.display_attribute_atom.take();
+        let attr_atom = atom.get(&GUID_DISPLAY_ATTRIBUTE).copied();
+        self.display_attribute_atom.set(atom);
+
         let edit_result = request_edit_session(context, tid, move |editor| {
             let range = editor.get_insertion_range()?;
             let composition = editor.start_composition(&range, &composition_sink)?;
 
             editor.set_composition_text(&composition, "ABC")?;
+
+            if let Some(atom) = attr_atom {
+                editor.set_display_attribute(&range, atom)?;
+            }
 
             composition_ref.set(Some(composition));
             Ok(())

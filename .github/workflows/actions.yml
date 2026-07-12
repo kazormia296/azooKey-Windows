@@ -79,8 +79,8 @@ jobs:
         Download-Extract -url "https://github.com/fkunn1326/llama.cpp/releases/download/b4846/llama-b4846-bin-win-cuda-cu12.4-x64.zip" -destFolder $llamaCudaDir
         Download-Extract -url "https://github.com/fkunn1326/llama.cpp/releases/download/b4846/llama-b4846-bin-win-vulkan-x64.zip" -destFolder $llamaVulkanDir
 
-        # Copy llama.lib to server-swift
-        Copy-Item "$llamaCpuDir\llama.lib" -Destination "server-swift\" -Force
+        # Swift's llama.cpp system module links all three import libraries.
+        Copy-Item "$llamaCpuDir\*.lib" -Destination "server-swift\" -Force
 
         # Download the zenz model
         $zenzUrl = "https://huggingface.co/Miwa-Keita/zenz-v3-small-gguf/resolve/main/ggml-model-Q5_K_M.gguf"

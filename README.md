@@ -1,17 +1,20 @@
-# azooKey for Windows
+# Grimodex IME for Windows
 
-[AzooKeyKanaKanjiConverter](https://github.com/azooKey/AzooKeyKanaKanjiConverter)を利用したWindows版IMEです。
+[AzooKeyKanaKanjiConverter](https://github.com/7ka-hiira/AzooKeyKanaKanjiConverter)を利用したGrimodex連携用Windows TSF IMEです。
 
 > [!WARNING]
 > 現在開発中であるため、安定性や機能に関しては保証できません。使用する際は自己責任でお願いします。
 
 # インストール方法
-[Release](https://github.com/fkunn1326/azooKey-Windows/releases)から`azookey-setup.exe`をダウンロードし、インストーラーを実行してください。
+`grimodex-ime-setup.exe`を実行すると、x64/x86 TSF DLL、Rustサーバー、Swift変換ブリッジをユーザー単位で登録します。
 
 # 機能
 
 - [x] ライブ変換
 - [x] Zenzaiを使用したニューラルかな漢字変換
+- [x] TSF activation単位のセッション分離（x64/x86クライアント共通サーバー）
+- [x] ユーザー限定 named pipe（PID/image検証、サイズ上限、接続タイムアウト）
+- [x] `APPDATA\com.miyakey.grimodex\ime` への設定分離
 
 - [ ] 学習機能
 - [ ] 辞書登録機能
@@ -55,7 +58,7 @@
 
 #### リポジトリのクローン
 ```
-git clone https://github.com/fkunn1326/azookey-Windows --recursive
+git clone https://github.com/kazormia296/azookey-Windows --recursive
 ```
 `--recursive`オプションを付けて、サブモジュールも一緒にクローンしてください。
 
@@ -72,7 +75,7 @@ cargo make build [--debug/--release]
 
 `build`フォルダーが作成され、ビルドされた実行ファイルが格納されます。
 
-`launcher.exe`を管理者権限で実行すると、azookeyの変換エンジンが起動します。
+`launcher.exe`を管理者権限で実行すると、Grimodexの変換エンジンが起動します。
 
 また、IMEを登録する際は以下のように`regsvr32.exe`を使用して登録する必要があります。
 ```c

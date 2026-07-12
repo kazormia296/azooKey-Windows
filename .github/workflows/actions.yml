@@ -20,13 +20,15 @@ jobs:
     - name: Install Swift
       uses: compnerd/gha-setup-swift@main
       with:
-        branch: swift-6.0.2-release
-        tag: 6.0.2-RELEASE
+        branch: swift-6.1-release
+        tag: 6.1-RELEASE
 
     - name: Fix swift sdk
       shell: pwsh
       run: |
-        $SwiftPath = "$env:APPDATA\..\Local\Programs\Swift\Platforms\6.0.2\Windows.platform\Developer\SDKs\Windows.sdk\usr"
+        $swiftPlatform = Get-ChildItem "$env:LOCALAPPDATA\Programs\Swift\Platforms" -Directory |
+          Sort-Object Name -Descending | Select-Object -First 1
+        $SwiftPath = "$($swiftPlatform.FullName)\Windows.platform\Developer\SDKs\Windows.sdk\usr"
         $modulemapUrl = "https://gist.githubusercontent.com/fkunn1326/ef8be2217082302b291f2b8d4178194a/raw/c424968c250afcd5afa1131aea1329dc0744a7f9/ucrt.modulemap"
         $destination = "$SwiftPath\share\ucrt.modulemap"
         Invoke-WebRequest -Uri $modulemapUrl -OutFile $destination
@@ -36,6 +38,21 @@ jobs:
 
     - name: Install cargo-make
       run: cargo install --force cargo-make
+
+    - name: Install Rust TSF targets
+      run: rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc
+
+    - name: Rust format and contract tests
+      run: |
+        cargo fmt --all -- --check
+        cargo test -p shared
+
+    - name: Windows IPC type checks
+      run: |
+        cargo check -p azookey-server --target x86_64-pc-windows-msvc
+        cargo check -p azookey-windows --target x86_64-pc-windows-msvc
+        cargo check -p ui --target x86_64-pc-windows-msvc
+        cargo check --manifest-path frontend/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
 
     - name: Download prebuilt llama
       run: |
@@ -62,8 +79,50 @@ jobs:
         Download-Extract -url "https://github.com/fkunn1326/llama.cpp/releases/download/b4846/llama-b4846-bin-win-cuda-cu12.4-x64.zip" -destFolder $llamaCudaDir
         Download-Extract -url "https://github.com/fkunn1326/llama.cpp/releases/download/b4846/llama-b4846-bin-win-vulkan-x64.zip" -destFolder $llamaVulkanDir
 
-        # Copy llama.lib to server-swift
-        Copy-Item "$llamaCpuDir\llama.lib" -Destination "server-swift\" -Force
+        # The release ships ggml DLLs but no import libraries. Swift's C++
+        # module map links ggml and ggml-base explicitly, so generate the
+        # corresponding MSVC import libraries from the DLL export tables.
+        $dumpbin = Get-ChildItem "$env:ProgramFiles\Microsoft Visual Studio" -Filter "dumpbin.exe" -Recurse |
+          Where-Object { $_.FullName -match "Hostx64\\x64" } |
+          Select-Object -First 1
+        $libTool = Get-ChildItem "$env:ProgramFiles\Microsoft Visual Studio" -Filter "lib.exe" -Recurse |
+          Where-Object { $_.FullName -match "Hostx64\\x64" } |
+          Select-Object -First 1
+        if (-not $dumpbin -or -not $libTool) {
+          throw "MSVC dumpbin/lib tools were not found"
+        }
+
+        function New-ImportLibrary {
+          param(
+            [string]$dllPath,
+            [string]$libraryPath
+          )
+
+          $dump = & $dumpbin.FullName /exports $dllPath
+          $exports = @($dump | ForEach-Object {
+            if ($_ -match '^\s+\d+\s+\S+\s+\S+\s+(\S+)\s*$') {
+              $matches[1]
+            }
+          })
+          if ($exports.Count -eq 0) {
+            throw "No exports found in $dllPath"
+          }
+
+          $defPath = [IO.Path]::ChangeExtension($libraryPath, ".def")
+          $defLines = @("LIBRARY $([IO.Path]::GetFileName($dllPath))", "EXPORTS") +
+            @($exports | ForEach-Object { "  $_" })
+          $defLines | Set-Content -Path $defPath -Encoding ascii
+          & $libTool.FullName /DEF:$defPath /MACHINE:X64 /OUT:$libraryPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create import library $libraryPath"
+          }
+        }
+
+        New-ImportLibrary "$llamaCpuDir\ggml.dll" "$llamaCpuDir\ggml.lib"
+        New-ImportLibrary "$llamaCpuDir\ggml-base.dll" "$llamaCpuDir\ggml-base.lib"
+
+        # Copy llama.cpp import libraries to server-swift.
+        Copy-Item "$llamaCpuDir\*.lib" -Destination "server-swift\" -Force
 
         # Download the zenz model
         $zenzUrl = "https://huggingface.co/Miwa-Keita/zenz-v3-small-gguf/resolve/main/ggml-model-Q5_K_M.gguf"
@@ -82,5 +141,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: azookey-setup
-        path: build/azookey-setup.exe
+        path: build/grimodex-ime-setup.exe
         if-no-files-found: error

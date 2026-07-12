@@ -1,13 +1,38 @@
 use anyhow::Result;
 use hyper_util::rt::TokioIo;
-use shared::proto::{
-    azookey_service_client::AzookeyServiceClient, window_service_client::WindowServiceClient,
+use shared::{
+    proto::{
+        azookey_service_client::AzookeyServiceClient, window_service_client::WindowServiceClient,
+        CloseSessionRequest, OpenSessionRequest,
+    },
+    server_pipe_name, ui_pipe_name,
 };
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tokio::{net::windows::named_pipe::ClientOptions, time};
 use tonic::transport::Endpoint;
 use tower::service_fn;
 use windows::Win32::Foundation::ERROR_PIPE_BUSY;
+
+static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
+
+fn session_id() -> String {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    format!(
+        "tsf-{}-{}-{}",
+        std::process::id(),
+        timestamp,
+        NEXT_SESSION.fetch_add(1, Ordering::Relaxed)
+    )
+}
 
 // connect to kkc server
 #[derive(Debug, Clone)]
@@ -17,6 +42,7 @@ pub struct IPCService {
     // candidate window server client
     window_client: WindowServiceClient<tonic::transport::channel::Channel>,
     runtime: Arc<tokio::runtime::Runtime>,
+    session_id: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -30,19 +56,25 @@ pub struct Candidates {
 impl IPCService {
     pub fn new() -> Result<Self> {
         let runtime = tokio::runtime::Runtime::new()?;
+        let session_id = session_id();
 
         let server_channel = runtime.block_on(
             Endpoint::try_from("http://[::]:50051")?.connect_with_connector(service_fn(
                 |_| async {
-                    let client = loop {
-                        match ClientOptions::new().open(r"\\.\pipe\azookey_server") {
-                            Ok(client) => break client,
-                            Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY.0 as i32) => (),
-                            Err(e) => return Err(e),
+                    let client = time::timeout(Duration::from_secs(10), async {
+                        loop {
+                            match ClientOptions::new().open(server_pipe_name()) {
+                                Ok(client) => break Ok(client),
+                                Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY.0 as i32) => (),
+                                Err(e) => break Err(e),
+                            }
+                            time::sleep(Duration::from_millis(50)).await;
                         }
-
-                        time::sleep(Duration::from_millis(50)).await;
-                    };
+                    })
+                    .await
+                    .map_err(|_| {
+                        std::io::Error::new(std::io::ErrorKind::TimedOut, "server pipe timeout")
+                    })??;
 
                     Ok::<_, std::io::Error>(TokioIo::new(client))
                 },
@@ -52,29 +84,42 @@ impl IPCService {
         let ui_channel = runtime.block_on(
             Endpoint::try_from("http://[::]:50052")?.connect_with_connector(service_fn(
                 |_| async {
-                    let client = loop {
-                        match ClientOptions::new().open(r"\\.\pipe\azookey_ui") {
-                            Ok(client) => break client,
-                            Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY.0 as i32) => (),
-                            Err(e) => return Err(e),
+                    let client = time::timeout(Duration::from_secs(10), async {
+                        loop {
+                            match ClientOptions::new().open(ui_pipe_name()) {
+                                Ok(client) => break Ok(client),
+                                Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY.0 as i32) => (),
+                                Err(e) => break Err(e),
+                            }
+                            time::sleep(Duration::from_millis(50)).await;
                         }
-
-                        time::sleep(Duration::from_millis(50)).await;
-                    };
+                    })
+                    .await
+                    .map_err(|_| {
+                        std::io::Error::new(std::io::ErrorKind::TimedOut, "ui pipe timeout")
+                    })??;
 
                     Ok::<_, std::io::Error>(TokioIo::new(client))
                 },
             )),
         )?;
 
-        let azookey_client = AzookeyServiceClient::new(server_channel);
+        let mut azookey_client = AzookeyServiceClient::new(server_channel);
         let window_client = WindowServiceClient::new(ui_channel);
+        runtime.block_on(
+            azookey_client.open_session(tonic::Request::new(OpenSessionRequest {
+                session_id: session_id.clone(),
+                input_scope: "text".to_string(),
+                secure: false,
+            })),
+        )?;
         tracing::debug!("Connected to server: {:?}", azookey_client);
 
         Ok(Self {
             azookey_client,
             window_client,
             runtime: Arc::new(runtime),
+            session_id,
         })
     }
 }
@@ -85,6 +130,7 @@ impl IPCService {
     pub fn append_text(&mut self, text: String) -> anyhow::Result<Candidates> {
         let request = tonic::Request::new(shared::proto::AppendTextRequest {
             text_to_append: text,
+            session_id: self.session_id.clone(),
         });
 
         let response = self
@@ -121,7 +167,9 @@ impl IPCService {
 
     #[tracing::instrument]
     pub fn remove_text(&mut self) -> anyhow::Result<Candidates> {
-        let request = tonic::Request::new(shared::proto::RemoveTextRequest {});
+        let request = tonic::Request::new(shared::proto::RemoveTextRequest {
+            session_id: self.session_id.clone(),
+        });
         let response = self
             .runtime
             .clone()
@@ -156,7 +204,9 @@ impl IPCService {
 
     #[tracing::instrument]
     pub fn clear_text(&mut self) -> anyhow::Result<()> {
-        let request = tonic::Request::new(shared::proto::ClearTextRequest {});
+        let request = tonic::Request::new(shared::proto::ClearTextRequest {
+            session_id: self.session_id.clone(),
+        });
         let _response = self
             .runtime
             .clone()
@@ -167,7 +217,10 @@ impl IPCService {
 
     #[tracing::instrument]
     pub fn shrink_text(&mut self, offset: i32) -> anyhow::Result<Candidates> {
-        let request = tonic::Request::new(shared::proto::ShrinkTextRequest { offset });
+        let request = tonic::Request::new(shared::proto::ShrinkTextRequest {
+            offset,
+            session_id: self.session_id.clone(),
+        });
         let response = self
             .runtime
             .clone()
@@ -201,12 +254,26 @@ impl IPCService {
     }
 
     pub fn set_context(&mut self, context: String) -> anyhow::Result<()> {
-        let request = tonic::Request::new(shared::proto::SetContextRequest { context });
+        let request = tonic::Request::new(shared::proto::SetContextRequest {
+            context,
+            session_id: self.session_id.clone(),
+        });
         let _response = self
             .runtime
             .clone()
             .block_on(self.azookey_client.set_context(request))?;
 
+        Ok(())
+    }
+
+    pub fn close_session(&mut self) -> anyhow::Result<()> {
+        self.runtime
+            .clone()
+            .block_on(self.azookey_client.close_session(tonic::Request::new(
+                CloseSessionRequest {
+                    session_id: self.session_id.clone(),
+                },
+            )))?;
         Ok(())
     }
 }

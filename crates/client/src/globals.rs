@@ -21,15 +21,15 @@ use windows::{
 pub const CLSID_PREFIX: &str = "CLSID\\";
 pub const INPROC_SUFFIX: &str = "\\InProcServer32";
 
-pub const SERVICE_NAME: &str = "Azookey";
+pub const SERVICE_NAME: &str = "Grimodex IME";
 
-// ffdefe79-2fc2-11ef-b16b-94e70b2c378c
-pub const GUID_TEXT_SERVICE: GUID = GUID::from_u128(0xffdefe79_2fc2_11ef_b16b_94e70b2c378c);
-// ffdefe7a-2fc2-11ef-b16b-94e70b2c378c
-pub const GUID_PROFILE: GUID = GUID::from_u128(0xffdefe7a_2fc2_11ef_b16b_94e70b2c378c);
+// 2a7a3d11-4c88-4c4b-9f4a-2e1b9d5c7001
+pub const GUID_TEXT_SERVICE: GUID = GUID::from_u128(0x2a7a3d11_4c88_4c4b_9f4a_2e1b9d5c7001);
+// 2a7a3d12-4c88-4c4b-9f4a-2e1b9d5c7001
+pub const GUID_PROFILE: GUID = GUID::from_u128(0x2a7a3d12_4c88_4c4b_9f4a_2e1b9d5c7001);
 
-// DisplayAttribute用のGUID
-pub const GUID_DISPLAY_ATTRIBUTE: GUID = GUID::from_u128(0xffdefe7b_2fc2_11ef_b16b_94e70b2c378c);
+// DisplayAttribute用のGrimodex固有GUID
+pub const GUID_DISPLAY_ATTRIBUTE: GUID = GUID::from_u128(0x2a7a3d13_4c88_4c4b_9f4a_2e1b9d5c7001);
 
 pub const DISPLAY_ATTRIBUTE: TF_DISPLAYATTRIBUTE = TF_DISPLAYATTRIBUTE {
     crText: TF_DA_COLOR {

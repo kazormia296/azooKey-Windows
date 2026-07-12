@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use azookey_server::TonicNamedPipeServer;
 use ipc::{WindowAction, WindowController, WindowService};
-use shared::proto::window_service_server::WindowServiceServer;
+use shared::{proto::window_service_server::WindowServiceServer, ui_pipe_name};
 use tao::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use tao::platform::windows::{EventLoopBuilderExtWindows, WindowExtWindows};
 use tao::{
@@ -58,9 +58,12 @@ async fn main() -> anyhow::Result<()> {
     // start grpc server
     tokio::spawn(async move {
         println!("WindowServer listening");
+        let grpc_service = WindowServiceServer::new(grpc_service)
+            .max_decoding_message_size(64 * 1024)
+            .max_encoding_message_size(64 * 1024);
         Server::builder()
-            .add_service(WindowServiceServer::new(grpc_service))
-            .serve_with_incoming(TonicNamedPipeServer::new("azookey_ui"))
+            .add_service(grpc_service)
+            .serve_with_incoming(TonicNamedPipeServer::new(&ui_pipe_name()))
             .await
             .expect("gRPC server failed");
     });

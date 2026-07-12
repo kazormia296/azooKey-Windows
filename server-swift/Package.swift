@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -17,7 +17,13 @@ let package = Package(
     dependencies: [
         // Dependencies declare other packages that this package depends on.
         // .package(url: /* package url */, from: "1.0.0"),
-        .package(url: "https://github.com/azookey/AzooKeyKanaKanjiConverter", branch: "7d5dd99")
+        // The Grimodex fork carries the dynamic user-dictionary and Zenzai v3
+        // APIs required by per-TSF converter sessions.
+        .package(
+            url: "https://github.com/7ka-hiira/AzooKeyKanaKanjiConverter",
+            branch: "8b4befc",
+            traits: ["Zenzai"]
+        )
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -28,6 +34,12 @@ let package = Package(
             dependencies: [
                 .product(name: "KanaKanjiConverterModule", package: "azookeykanakanjiconverter"),
                 "ffi"
+            ],
+            swiftSettings: [
+                // The converter package is built with C++ interop when the
+                // Zenzai trait is enabled. Match that mode for this target so
+                // Swift can import its llama.cpp-backed module on Windows.
+                .interoperabilityMode(.Cxx)
             ]
         ),
         .testTarget(

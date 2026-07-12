@@ -34,6 +34,12 @@ let package = Package(
             dependencies: [
                 .product(name: "KanaKanjiConverterModule", package: "azookeykanakanjiconverter"),
                 "ffi"
+            ],
+            swiftSettings: [
+                // The converter package is built with C++ interop when the
+                // Zenzai trait is enabled. Match that mode for this target so
+                // Swift can import its llama.cpp-backed module on Windows.
+                .interoperabilityMode(.Cxx)
             ]
         ),
         .testTarget(

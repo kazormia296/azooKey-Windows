@@ -8,7 +8,7 @@ import ffi
 /// state.
 @MainActor
 final class ConverterSession {
-    let converter = KanaKanjiConverter()
+    let converter: KanaKanjiConverter
     var composingText = ComposingText()
     var execURL: URL
     let useZenzai: Bool
@@ -17,6 +17,10 @@ final class ConverterSession {
     init(path: String, useZenzai: Bool) {
         self.execURL = URL(filePath: path)
         self.useZenzai = useZenzai
+        self.converter = KanaKanjiConverter(
+            dictionaryURL: self.execURL.appendingPathComponent("Dictionary"),
+            preloadDictionary: true
+        )
         loadConfig()
 
         // Force dictionary/resource loading while the session is being opened
@@ -28,17 +32,17 @@ final class ConverterSession {
 
     func getOptions(context: String = "") -> ConvertRequestOptions {
         ConvertRequestOptions(
-            requireJapanesePrediction: true,
-            requireEnglishPrediction: false,
+            requireJapanesePrediction: .autoMix,
+            requireEnglishPrediction: .disabled,
             keyboardLanguage: .ja_JP,
             learningType: .nothing,
-            dictionaryResourceURL: execURL.appendingPathComponent("Dictionary"),
             memoryDirectoryURL: execURL.appendingPathComponent("Memory"),
             sharedContainerURL: execURL.appendingPathComponent("Memory"),
             textReplacer: .init {
                 execURL.appendingPathComponent("EmojiDictionary")
                     .appendingPathComponent("emoji_all_E15.1.txt")
             },
+            specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
             zenzaiMode: useZenzai && (config["enable"] as? Bool) == true ? .on(
                 weight: execURL.appendingPathComponent("zenz.gguf"),
                 inferenceLimit: 1,
@@ -186,9 +190,9 @@ func to_list_pointer(_ list: [FFICandidate]) -> UnsafeMutablePointer<UnsafeMutab
     for candidate in converted.mainResults {
         let text = strdup(constructCandidateString(candidate: candidate, hiragana: hiragana))
         let candidateHiragana = strdup(hiragana)
-        let correspondingCount = candidate.correspondingCount
         var afterComposingText = converterSession.composingText
-        afterComposingText.prefixComplete(correspondingCount: correspondingCount)
+        afterComposingText.prefixComplete(composingCount: candidate.composingCount)
+        let correspondingCount = converterSession.composingText.input.count - afterComposingText.input.count
         let subtext = strdup(afterComposingText.convertTarget)
         result.append(FFICandidate(
             text: text,
@@ -209,7 +213,7 @@ func to_list_pointer(_ list: [FFICandidate]) -> UnsafeMutablePointer<UnsafeMutab
 ) -> UnsafeMutablePointer<CChar> {
     let converterSession = session(handle)
     var afterComposingText = converterSession.composingText
-    afterComposingText.prefixComplete(correspondingCount: Int(offset))
+    afterComposingText.prefixComplete(composingCount: .inputCount(Int(offset)))
     converterSession.composingText = afterComposingText
     return _strdup(converterSession.composingText.convertTarget)!
 }

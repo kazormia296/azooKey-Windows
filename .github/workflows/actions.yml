@@ -37,6 +37,21 @@ jobs:
     - name: Install cargo-make
       run: cargo install --force cargo-make
 
+    - name: Install Rust TSF targets
+      run: rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc
+
+    - name: Rust format and contract tests
+      run: |
+        cargo fmt --all -- --check
+        cargo test -p shared
+
+    - name: Windows IPC type checks
+      run: |
+        cargo check -p azookey-server --target x86_64-pc-windows-msvc
+        cargo check -p azookey-windows --target x86_64-pc-windows-msvc
+        cargo check -p ui --target x86_64-pc-windows-msvc
+        cargo check --manifest-path frontend/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
+
     - name: Download prebuilt llama
       run: |
         function Download-Extract {

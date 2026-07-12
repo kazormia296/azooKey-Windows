@@ -17,6 +17,7 @@ message ComposingText {
 // Request message for AppendText.
 message AppendTextRequest {
   string text_to_append = 1; // The text to append to the current content.
+  string session_id = 2; // The TSF composition session that owns the state.
 }
 
 // Response message for AppendText.
@@ -25,7 +26,9 @@ message AppendTextResponse {
 }
 
 // Request message for RemoveText.
-message RemoveTextRequest {}
+message RemoveTextRequest {
+  string session_id = 1;
+}
 
 // Response message for RemoveText.
 message RemoveTextResponse {
@@ -35,11 +38,13 @@ message RemoveTextResponse {
 // Request message for MoveCursor.
 message MoveCursorRequest {
   int32 offset = 1; // The new cursor position.
+  string session_id = 2;
 }
 
 // Request message for ShrinkText.
 message ShrinkTextRequest {
   int32 offset = 1;
+  string session_id = 2;
 }
 
 message ShrinkTextResponse {
@@ -52,23 +57,42 @@ message MoveCursorResponse {
 }
 
 // Request message for ClearText.
-message ClearTextRequest {}
+message ClearTextRequest {
+  string session_id = 1;
+}
 
 // Response message for ClearText.
 message ClearTextResponse {}
 
 message SetContextRequest {
   string context = 1;
+  string session_id = 2;
 }
 
 message SetContextResponse {}
 
-message UpdateConfigRequest {}
+message UpdateConfigRequest {
+  string session_id = 1;
+}
 message UpdateConfigResponse {}
+
+message OpenSessionRequest {
+  string session_id = 1;
+  string input_scope = 2;
+  bool secure = 3;
+}
+message OpenSessionResponse {}
+
+message CloseSessionRequest {
+  string session_id = 1;
+}
+message CloseSessionResponse {}
 
 
 // Service definition for text editing operations.
 service AzookeyService {
+  rpc OpenSession (OpenSessionRequest) returns (OpenSessionResponse);
+  rpc CloseSession (CloseSessionRequest) returns (CloseSessionResponse);
   rpc AppendText (AppendTextRequest) returns (AppendTextResponse);
   rpc RemoveText (RemoveTextRequest) returns (RemoveTextResponse);
   rpc ShrinkText (ShrinkTextRequest) returns (ShrinkTextResponse);

@@ -158,6 +158,17 @@ impl ITfTextInputProcessor_Impl for TextServiceFactory_Impl {
         text_service.tid = 0;
         text_service.thread_mgr = None;
 
+        // Close the per-activation server session before releasing the TSF
+        // references.  A failed close is logged but must not make TSF unload
+        // fail; the server reaps abandoned sessions on pipe disconnect.
+        if let Ok(mut ime_state) = IMEState::get() {
+            if let Some(mut ipc_service) = ime_state.ipc_service.take() {
+                if let Err(error) = ipc_service.close_session() {
+                    tracing::warn!(?error, "Failed to close IME server session");
+                }
+            }
+        }
+
         tracing::debug!("Deactivate success");
 
         Ok(())

@@ -2,15 +2,15 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 #include "CodeDependencies.iss"
 
-#define MyAppName "Azookey"
+#define MyAppName "Grimodex IME"
 #define MyAppVersion "0.1.0-alpha.1"
-#define MyAppPublisher "fkunn1326"
-#define MyAppURL "https://github.com/fkunn1326/azooKey-Windows/"
+#define MyAppPublisher "Miyakey"
+#define MyAppURL "https://github.com/kazormia296/azooKey-Windows/"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{80B746D4-D74D-4345-8F81-47E06BCAB515}
+AppId={{2A7A3D10-4C88-4C4B-9F4A-2E1B9D5C7001}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 ;AppVerName={#MyAppName} {#MyAppVersion}
@@ -19,9 +19,8 @@ AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={userappdata}\{#MyAppName}
-; "ArchitecturesAllowed=x64compatible" specifies that Setup cannot run
-; on anything but x64 and Windows 11 on Arm.
-ArchitecturesAllowed=x64compatible
+; The TSF is shipped as both native x64 and x86 binaries.
+ArchitecturesAllowed=x86compatible x64compatible
 ; "ArchitecturesInstallIn64BitMode=x64compatible" requests that the
 ; install be done in "64-bit mode" on x64 or Windows 11 on Arm,
 ; meaning it should use the native 64-bit Program Files directory and
@@ -31,7 +30,7 @@ DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 OutputDir=../build
-OutputBaseFilename=azookey-setup
+OutputBaseFilename=grimodex-ime-setup
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
@@ -40,37 +39,37 @@ PrivilegesRequired=admin
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 
 [Files]
-Source: "../build/azookey_windows.dll"; DestDir: "{app}"; DestName: "azookey.dll"; Flags: ignoreversion regserver 64bit
-Source: "../build/x86/azookey_windows.dll"; DestDir: "{app}"; DestName: "azookey32.dll"; Flags: ignoreversion regserver 32bit
+Source: "../build/azookey_windows.dll"; DestDir: "{app}"; DestName: "grimodex-ime.dll"; Flags: ignoreversion regserver 64bit
+Source: "../build/x86/azookey_windows.dll"; DestDir: "{app}"; DestName: "grimodex-ime32.dll"; Flags: ignoreversion regserver 32bit
 Source: "../build/*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "../target/release/bundle/nsis/Azookey_0.1.0_x64-setup.exe"; Flags: dontcopy noencryption
+Source: "../target/release/bundle/nsis/Grimodex_0.1.0_x64-setup.exe"; Flags: dontcopy noencryption
 Source: "./Azookey Startup.xml"; Flags: dontcopy noencryption
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Run]
 Filename: "icacls"; \
-  Parameters: "{app}\azookey.dll /grant ""*S-1-15-2-1:(RX)"""; \
+  Parameters: "{app}\grimodex-ime.dll /grant ""*S-1-15-2-1:(RX)"""; \
   Description: "Grant Permission"; \
   Flags: runhidden postinstall runascurrentuser
 Filename: "icacls"; \
-  Parameters: "{app}\azookey32.dll /grant ""*S-1-15-2-1:(RX)"""; \
+  Parameters: "{app}\grimodex-ime32.dll /grant ""*S-1-15-2-1:(RX)"""; \
   Description: "Grant Permission"; \
   Flags: runhidden postinstall runascurrentuser
 
 [UninstallRun]
 Filename: "schtasks"; \
-  Parameters: "/Delete /TN ""Azookey Startup"" /F"; \
+  Parameters: "/Delete /TN ""Grimodex IME Startup"" /F"; \
   Flags: runhidden runascurrentuser
 
 [Code]
 function InitializeSetup: Boolean;
 begin
-  ExtractTemporaryFile('Azookey_0.1.0_x64-setup.exe');
+  ExtractTemporaryFile('Grimodex_0.1.0_x64-setup.exe');
   Dependency_AddVC2015To2022x64;
   Dependency_AddVC2015To2022x86;
-  Dependency_Add('Azookey_0.1.0_x64-setup.exe',
+  Dependency_Add('Grimodex_0.1.0_x64-setup.exe',
     '/q',
-    'Azookey',
+    'Grimodex IME',
     '', '', True, False);
 
   Result := True;
@@ -113,8 +112,8 @@ begin
   TaskXmlContentAnsi := AnsiString(TaskXmlContent);
   SaveStringToFile(TaskXmlPath, TaskXmlContentAnsi, False);
 
-  ShellExec('', 'schtasks', '/Create /F /TN "Azookey Startup" /XML "' + TaskXmlPath + '"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
-  ShellExec('', 'schtasks', '/Run /TN "Azookey Startup"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
+  ShellExec('', 'schtasks', '/Create /F /TN "Grimodex IME Startup" /XML "' + TaskXmlPath + '"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
+  ShellExec('', 'schtasks', '/Run /TN "Grimodex IME Startup"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
 end;
 
 procedure CreateVbsFile();
@@ -137,12 +136,12 @@ begin
   end;
 end;
 
-procedure UninstallAzookey();
+procedure UninstallGrimodex();
 var
   UninstallString: string;
   Dummy: Integer;
 begin
-  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\Azookey', 'UninstallString', UninstallString) then
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\Grimodex IME', 'UninstallString', UninstallString) then
   begin
     if UninstallString <> '' then
     begin
@@ -171,6 +170,6 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    UninstallAzookey();
+    UninstallGrimodex();
   end;
 end;

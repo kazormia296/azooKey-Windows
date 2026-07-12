@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -19,7 +19,11 @@ let package = Package(
         // .package(url: /* package url */, from: "1.0.0"),
         // The Grimodex fork carries the dynamic user-dictionary and Zenzai v3
         // APIs required by per-TSF converter sessions.
-        .package(url: "https://github.com/7ka-hiira/AzooKeyKanaKanjiConverter", branch: "8b4befc")
+        .package(
+            url: "https://github.com/7ka-hiira/AzooKeyKanaKanjiConverter",
+            branch: "8b4befc",
+            traits: ["Zenzai"]
+        )
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.

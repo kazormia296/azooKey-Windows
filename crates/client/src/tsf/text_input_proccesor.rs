@@ -32,8 +32,7 @@ impl ITfTextInputProcessor_Impl for TextServiceFactory_Impl {
         dll_instance.add_ref();
 
         // initialize ipc_service
-        if let Ok(mut ipc_service) = ipc_service::IPCService::new() {
-            ipc_service.append_text("".to_string())?;
+        if let Ok(ipc_service) = ipc_service::IPCService::new() {
             IMEState::get()?.ipc_service = Some(ipc_service);
         } else {
             // Activate() should not return an error

@@ -63,6 +63,7 @@ impl IPCService {
                 session_id: session_id.clone(),
                 input_scope: "control".to_string(),
                 secure: true,
+                application_id: "control".to_string(),
             })),
         )?;
 

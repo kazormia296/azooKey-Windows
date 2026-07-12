@@ -80,6 +80,7 @@ message OpenSessionRequest {
   string session_id = 1;
   string input_scope = 2;
   bool secure = 3;
+  string application_id = 4;
 }
 message OpenSessionResponse {}
 

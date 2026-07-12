@@ -18,6 +18,7 @@ use tokio::{net::windows::named_pipe::ClientOptions, time};
 use tonic::transport::Endpoint;
 use tower::service_fn;
 use windows::Win32::Foundation::ERROR_PIPE_BUSY;
+use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
 
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
@@ -32,6 +33,16 @@ fn session_id() -> String {
         timestamp,
         NEXT_SESSION.fetch_add(1, Ordering::Relaxed)
     )
+}
+
+fn current_application_id() -> String {
+    let mut buffer = [0u16; 260];
+    let length = unsafe { GetModuleFileNameW(None, &mut buffer) } as usize;
+    let path = String::from_utf16_lossy(&buffer[..length.min(buffer.len())]);
+    path.rsplit(['\\', '/'])
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
 }
 
 // connect to kkc server
@@ -111,6 +122,7 @@ impl IPCService {
                 session_id: session_id.clone(),
                 input_scope: "text".to_string(),
                 secure: false,
+                application_id: current_application_id(),
             })),
         )?;
         tracing::debug!("Connected to server: {:?}", azookey_client);

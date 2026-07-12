@@ -77,6 +77,8 @@ pub mod proto {
         tonic::include_file_descriptor_set!("azookey_service_descriptor");
 }
 
+pub mod ime;
+
 pub fn config_root_from_appdata(appdata: impl AsRef<Path>) -> PathBuf {
     appdata.as_ref().join(PRODUCT_ID).join(IME_CONFIG_DIR)
 }

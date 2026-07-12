@@ -15,6 +15,9 @@
 - [x] TSF activation単位のセッション分離（x64/x86クライアント共通サーバー）
 - [x] ユーザー限定 named pipe（PID/image検証、サイズ上限、接続タイムアウト）
 - [x] `APPDATA\com.miyakey.grimodex\ime` への設定分離
+- [x] Grimodex Protocol V1 consumer（atomic handshake、15分heartbeat、fail-closed reader）
+- [x] アクティブ作品の動的辞書・Zenzai context連携（変換中はgenerationを固定）
+- [x] Grimodexアプリケーション限定連携とpassword scopeのsecure fallback
 
 - [ ] 学習機能
 - [ ] 辞書登録機能
@@ -25,6 +28,13 @@
 - [ ] 予測変換
 
 # 設定
+
+## Grimodex連携
+
+通常は`%APPDATA%\com.miyakey.grimodex\ime`を読み込みます。開発時に別のProtocol V1
+ルートを使う場合は、サーバー起動前に`GRIMODEX_IME_ROOT`を設定してください。
+state/projectのJSONが上限・Schema・timestamp検証に失敗した場合は、辞書とcontextを
+空にして既存の変換だけを継続します。作品の切替は変換区切りまで保留されます。
 
 ## Zenzai
 

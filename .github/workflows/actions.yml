@@ -141,5 +141,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: azookey-setup
-        path: build/azookey-setup.exe
+        path: build/grimodex-ime-setup.exe
         if-no-files-found: error

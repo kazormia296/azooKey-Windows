@@ -79,7 +79,49 @@ jobs:
         Download-Extract -url "https://github.com/fkunn1326/llama.cpp/releases/download/b4846/llama-b4846-bin-win-cuda-cu12.4-x64.zip" -destFolder $llamaCudaDir
         Download-Extract -url "https://github.com/fkunn1326/llama.cpp/releases/download/b4846/llama-b4846-bin-win-vulkan-x64.zip" -destFolder $llamaVulkanDir
 
-        # Swift's llama.cpp system module links all three import libraries.
+        # The release ships ggml DLLs but no import libraries. Swift's C++
+        # module map links ggml and ggml-base explicitly, so generate the
+        # corresponding MSVC import libraries from the DLL export tables.
+        $dumpbin = Get-ChildItem "$env:ProgramFiles\Microsoft Visual Studio" -Filter "dumpbin.exe" -Recurse |
+          Where-Object { $_.FullName -match "Hostx64\\x64" } |
+          Select-Object -First 1
+        $libTool = Get-ChildItem "$env:ProgramFiles\Microsoft Visual Studio" -Filter "lib.exe" -Recurse |
+          Where-Object { $_.FullName -match "Hostx64\\x64" } |
+          Select-Object -First 1
+        if (-not $dumpbin -or -not $libTool) {
+          throw "MSVC dumpbin/lib tools were not found"
+        }
+
+        function New-ImportLibrary {
+          param(
+            [string]$dllPath,
+            [string]$libraryPath
+          )
+
+          $dump = & $dumpbin.FullName /exports $dllPath
+          $exports = @($dump | ForEach-Object {
+            if ($_ -match '^\s+\d+\s+\S+\s+\S+\s+(\S+)\s*$') {
+              $matches[1]
+            }
+          })
+          if ($exports.Count -eq 0) {
+            throw "No exports found in $dllPath"
+          }
+
+          $defPath = [IO.Path]::ChangeExtension($libraryPath, ".def")
+          $defLines = @("LIBRARY $([IO.Path]::GetFileName($dllPath))", "EXPORTS") +
+            @($exports | ForEach-Object { "  $_" })
+          $defLines | Set-Content -Path $defPath -Encoding ascii
+          & $libTool.FullName /DEF:$defPath /MACHINE:X64 /OUT:$libraryPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create import library $libraryPath"
+          }
+        }
+
+        New-ImportLibrary "$llamaCpuDir\ggml.dll" "$llamaCpuDir\ggml.lib"
+        New-ImportLibrary "$llamaCpuDir\ggml-base.dll" "$llamaCpuDir\ggml-base.lib"
+
+        # Copy llama.cpp import libraries to server-swift.
         Copy-Item "$llamaCpuDir\*.lib" -Destination "server-swift\" -Force
 
         # Download the zenz model

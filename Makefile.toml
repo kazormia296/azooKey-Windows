@@ -11,7 +11,7 @@ description = "Build the swift code"
 script_runner = "@shell"
 script = """
 cd server-swift
-swift build -c release -Xcc -D_CRT_USE_C_COMPLEX_H
+swift build -c release -Xcc -D_CRT_USE_C_COMPLEX_H -Xcc -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
 cp .build/release/azookey-server.lib ../
 """
 

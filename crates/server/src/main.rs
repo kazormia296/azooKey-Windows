@@ -9,6 +9,10 @@ use shared::proto::{
     RemoveTextResponse, ShrinkTextRequest, ShrinkTextResponse, Suggestion,
 };
 use shared::{
+    ime::{
+        allows_application_scope, resolve_root, ActiveSnapshot, CompositionGenerationPin,
+        ConsumerRegistrar, SnapshotLoader, SnapshotRevision, CONSUMER_HEARTBEAT,
+    },
     proto::azookey_service_server::{AzookeyService, AzookeyServiceServer},
     server_pipe_name,
 };
@@ -24,11 +28,19 @@ mod watcher;
 
 const MAX_SESSION_ID_LENGTH: usize = 128;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 struct SessionMetadata {
     input_scope: String,
     secure: bool,
     converter_handle: usize,
+    integration_allowed: bool,
+    generation_pin: CompositionGenerationPin,
+}
+
+impl SessionMetadata {
+    fn grimodex_integration_allowed(&self) -> bool {
+        self.integration_allowed && !self.secure && self.input_scope != "password"
+    }
 }
 
 #[derive(Debug, Default)]
@@ -50,13 +62,7 @@ impl SessionRegistry {
         Ok(())
     }
 
-    fn open(
-        &self,
-        session_id: String,
-        input_scope: String,
-        secure: bool,
-        converter_handle: *mut c_void,
-    ) -> Result<(), &'static str> {
+    fn open(&self, session_id: String, metadata: SessionMetadata) -> Result<(), &'static str> {
         Self::validate_id(&session_id)?;
         let mut sessions = self
             .sessions
@@ -65,14 +71,7 @@ impl SessionRegistry {
         if sessions.contains_key(&session_id) {
             return Err("session already exists");
         }
-        sessions.insert(
-            session_id,
-            SessionMetadata {
-                input_scope,
-                secure,
-                converter_handle: converter_handle as usize,
-            },
-        );
+        sessions.insert(session_id, metadata);
         Ok(())
     }
 
@@ -93,6 +92,56 @@ impl SessionRegistry {
             .map_err(|_| "session registry poisoned")?
             .remove(session_id)
             .ok_or("session is not open")
+    }
+
+    fn with_mut<T>(
+        &self,
+        session_id: &str,
+        operation: impl FnOnce(&mut SessionMetadata) -> Result<T, &'static str>,
+    ) -> Result<T, &'static str> {
+        Self::validate_id(session_id)?;
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| "session registry poisoned")?;
+        let session = sessions.get_mut(session_id).ok_or("session is not open")?;
+        operation(session)
+    }
+}
+
+#[derive(Debug)]
+struct SnapshotManager {
+    loader: SnapshotLoader,
+    state: Mutex<(u64, Option<ActiveSnapshot>)>,
+}
+
+impl SnapshotManager {
+    fn new(root: PathBuf) -> Arc<Self> {
+        let manager = Arc::new(Self {
+            loader: SnapshotLoader::new(root),
+            state: Mutex::new((0, None)),
+        });
+        manager.reload();
+        manager
+    }
+
+    fn current(&self) -> SnapshotRevision {
+        self.state
+            .lock()
+            .map(|state| SnapshotRevision::new(state.0, state.1.clone()))
+            .unwrap_or_else(|_| SnapshotRevision::new(0, None))
+    }
+
+    fn reload(&self) -> SnapshotRevision {
+        let next = self.loader.load().snapshot;
+        let Ok(mut state) = self.state.lock() else {
+            return SnapshotRevision::new(0, None);
+        };
+        if state.1 != next {
+            state.0 = state.0.saturating_add(1);
+            state.1 = next;
+        }
+        SnapshotRevision::new(state.0, state.1.clone())
     }
 }
 
@@ -121,6 +170,25 @@ unsafe extern "C" {
     fn ClearText(handle: *mut c_void);
     fn GetComposedText(handle: *mut c_void, lengthPtr: *mut c_int) -> *mut *mut FFICandidate;
     fn LoadConfig(handle: *mut c_void);
+    fn SetGrimodexPayload(handle: *mut c_void, payload: *const c_char);
+}
+
+fn apply_revision(
+    handle: *mut c_void,
+    integration_allowed: bool,
+    revision: &SnapshotRevision,
+) -> Result<(), &'static str> {
+    let snapshot = if integration_allowed {
+        revision.snapshot.clone()
+    } else {
+        None
+    };
+    let snapshot = snapshot.unwrap_or_else(|| ActiveSnapshot::empty("inactive"));
+    let payload = serde_json::to_string(&snapshot.converter_payload())
+        .map_err(|_| "serialize Grimodex converter payload")?;
+    let payload = CString::new(payload).map_err(|_| "payload contains NUL")?;
+    unsafe { SetGrimodexPayload(handle, payload.as_ptr()) };
+    Ok(())
 }
 
 fn create_session(path: &str, use_zenzai: bool) -> Result<*mut c_void, Status> {
@@ -249,14 +317,16 @@ pub struct SessionAzookeyService {
     registry: Arc<SessionRegistry>,
     converter_lock: Arc<tokio::sync::Mutex<()>>,
     converter_path: Arc<PathBuf>,
+    snapshot_manager: Arc<SnapshotManager>,
 }
 
 impl SessionAzookeyService {
-    fn new(converter_path: PathBuf) -> Self {
+    fn new(converter_path: PathBuf, snapshot_root: PathBuf) -> Self {
         Self {
             registry: Arc::new(SessionRegistry::default()),
             converter_lock: Arc::new(tokio::sync::Mutex::new(())),
             converter_path: Arc::new(converter_path),
+            snapshot_manager: SnapshotManager::new(snapshot_root),
         }
     }
 
@@ -264,6 +334,26 @@ impl SessionAzookeyService {
         self.registry
             .require(session_id)
             .map_err(|message| Status::failed_precondition(message))
+    }
+
+    fn reload_snapshot_and_sessions(&self) {
+        let revision = self.snapshot_manager.reload();
+        let Ok(mut sessions) = self.registry.sessions.lock() else {
+            eprintln!("Grimodex session registry is poisoned while reloading snapshot");
+            return;
+        };
+        for session in sessions.values_mut() {
+            unsafe { LoadConfig(session.converter_handle as *mut c_void) };
+            if let Some(applied) = session.generation_pin.observe(revision.clone()) {
+                if let Err(error) = apply_revision(
+                    session.converter_handle as *mut c_void,
+                    session.grimodex_integration_allowed(),
+                    &applied,
+                ) {
+                    eprintln!("Grimodex snapshot apply failed: {error}");
+                }
+            }
+        }
     }
 }
 
@@ -277,24 +367,43 @@ impl AzookeyService for SessionAzookeyService {
         if request.input_scope.len() > 256 {
             return Err(Status::invalid_argument("input scope is too long"));
         }
+        if request.application_id.len() > 128 {
+            return Err(Status::invalid_argument("application id is too long"));
+        }
         if !matches!(
             request.input_scope.as_str(),
             "text" | "search" | "password" | "control"
         ) {
             return Err(Status::invalid_argument("unsupported input scope"));
         }
+        let secure = request.secure || request.input_scope == "password";
         let handle = create_session(
             self.converter_path
                 .to_str()
                 .ok_or_else(|| Status::internal("converter path is not UTF-8"))?,
-            !request.secure,
+            !secure,
         )?;
-        if let Err(error) = self.registry.open(
-            request.session_id,
-            request.input_scope,
-            request.secure,
-            handle,
-        ) {
+        let integration_allowed = !secure && allows_application_scope(&request.application_id);
+        let current_revision = self.snapshot_manager.current();
+        let mut generation_pin = CompositionGenerationPin::default();
+        let Some(applied) = generation_pin.observe(current_revision) else {
+            unsafe { DestroySession(handle) };
+            return Err(Status::internal(
+                "initial Grimodex revision was not applied",
+            ));
+        };
+        if let Err(error) = apply_revision(handle, integration_allowed, &applied) {
+            unsafe { DestroySession(handle) };
+            return Err(Status::internal(error));
+        }
+        let metadata = SessionMetadata {
+            input_scope: request.input_scope,
+            secure,
+            converter_handle: handle as usize,
+            integration_allowed,
+            generation_pin,
+        };
+        if let Err(error) = self.registry.open(request.session_id, metadata) {
             unsafe { DestroySession(handle) };
             return Err(Status::failed_precondition(error));
         }
@@ -320,16 +429,32 @@ impl AzookeyService for SessionAzookeyService {
         request: Request<AppendTextRequest>,
     ) -> Result<Response<AppendTextResponse>, Status> {
         let request = request.into_inner();
-        let session = self.require_session(&request.session_id)?;
         let _guard = self.converter_lock.lock().await;
         let input = request.text_to_append;
-        let composing_text = add_text(session.converter_handle as *mut c_void, &input);
+        let revision = self.snapshot_manager.current();
+        let composing_text = self
+            .registry
+            .with_mut(&request.session_id, move |session| {
+                if !input.is_empty() && session.generation_pin.pinned_generation().is_none() {
+                    if let Some(applied) = session.generation_pin.begin_composition(revision) {
+                        apply_revision(
+                            session.converter_handle as *mut c_void,
+                            session.grimodex_integration_allowed(),
+                            &applied,
+                        )?;
+                    }
+                }
+                let handle = session.converter_handle as *mut c_void;
+                let composing_text = add_text(handle, &input);
+                Ok(ComposingText {
+                    hiragana: composing_text.text,
+                    suggestions: get_composed_text(handle),
+                })
+            })
+            .map_err(Status::failed_precondition)?;
 
         Ok(Response::new(AppendTextResponse {
-            composing_text: Some(ComposingText {
-                hiragana: composing_text.text,
-                suggestions: get_composed_text(session.converter_handle as *mut c_void).to_vec(),
-            }),
+            composing_text: Some(composing_text),
         }))
     }
 
@@ -371,9 +496,22 @@ impl AzookeyService for SessionAzookeyService {
         &self,
         request: Request<ClearTextRequest>,
     ) -> Result<Response<ClearTextResponse>, Status> {
-        let session = self.require_session(&request.into_inner().session_id)?;
+        let session_id = request.into_inner().session_id;
         let _guard = self.converter_lock.lock().await;
-        clear_text(session.converter_handle as *mut c_void);
+        let revision = self.snapshot_manager.current();
+        self.registry
+            .with_mut(&session_id, |session| {
+                if let Some(applied) = session.generation_pin.end_composition(revision) {
+                    apply_revision(
+                        session.converter_handle as *mut c_void,
+                        session.grimodex_integration_allowed(),
+                        &applied,
+                    )?;
+                }
+                clear_text(session.converter_handle as *mut c_void);
+                Ok(())
+            })
+            .map_err(Status::failed_precondition)?;
         Ok(Response::new(ClearTextResponse {}))
     }
 
@@ -438,21 +576,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("server executable has no parent directory")?
         .to_path_buf();
 
-    let service = SessionAzookeyService::new(parent_dir);
-    let appdata = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let user_data_paths = vec![
-        shared::config_root_from_appdata(&appdata),
-        appdata.join(shared::PRODUCT_ID).join("projects"),
-    ];
+    let snapshot_root = resolve_root();
+    let registrar = ConsumerRegistrar::new(snapshot_root.clone(), "0.1.0");
+    registrar.register()?;
+    let heartbeat_registrar = registrar.clone();
+    let _heartbeat = std::thread::Builder::new()
+        .name("grimodex-consumer-heartbeat".to_string())
+        .spawn(move || loop {
+            std::thread::sleep(CONSUMER_HEARTBEAT);
+            if let Err(error) = heartbeat_registrar.heartbeat() {
+                eprintln!("Grimodex consumer heartbeat failed: {error}");
+            }
+        })?;
+
+    let service = SessionAzookeyService::new(parent_dir, snapshot_root.clone());
+    let watcher_service = service.clone();
+    let user_data_paths = vec![snapshot_root.clone(), snapshot_root.join("projects")];
     watcher::spawn(
         user_data_paths,
-        Arc::new(|| {
-            // The next UpdateConfig RPC reloads each active session.  Keeping the
-            // watcher callback side-effect free avoids invoking Swift MainActor
-            // code from a filesystem thread.
-            println!("Grimodex user data changed");
+        Arc::new(move || {
+            watcher_service.reload_snapshot_and_sessions();
         }),
     );
 
@@ -484,11 +627,29 @@ mod tests {
         let registry = SessionRegistry::default();
         assert!(registry.require("tsf-1").is_err());
         registry
-            .open("tsf-1".into(), "text".into(), false, std::ptr::null_mut())
+            .open(
+                "tsf-1".into(),
+                SessionMetadata {
+                    input_scope: "text".into(),
+                    secure: false,
+                    converter_handle: 0,
+                    integration_allowed: false,
+                    generation_pin: CompositionGenerationPin::default(),
+                },
+            )
             .unwrap();
         assert!(registry.require("tsf-1").is_ok());
         assert!(registry
-            .open("tsf-1".into(), "text".into(), false, std::ptr::null_mut())
+            .open(
+                "tsf-1".into(),
+                SessionMetadata {
+                    input_scope: "text".into(),
+                    secure: false,
+                    converter_handle: 0,
+                    integration_allowed: false,
+                    generation_pin: CompositionGenerationPin::default(),
+                },
+            )
             .is_err());
         registry.close("tsf-1").unwrap();
         assert!(registry.require("tsf-1").is_err());

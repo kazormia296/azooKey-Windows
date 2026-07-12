@@ -2,6 +2,21 @@ import KanaKanjiConverterModule
 import Foundation
 import ffi
 
+private struct GrimodexDictionaryEntry: Decodable {
+    let ruby: String
+    let word: String
+    let cid: Int
+    let mid: Int
+    let value: Float
+}
+
+private struct GrimodexPayload: Decodable {
+    let entries: [GrimodexDictionaryEntry]
+    let topic: String?
+    let style: String?
+    let preference: String?
+}
+
 /// Converter state is owned by a TSF activation, not by the server process.
 /// The Rust service passes this opaque pointer back for every RPC so x64 and
 /// x86 TSF clients can compose concurrently without sharing cursor/context
@@ -13,6 +28,9 @@ final class ConverterSession {
     var execURL: URL
     let useZenzai: Bool
     var config: [String: Any] = ["enable": false, "profile": ""]
+    var grimodexTopic: String?
+    var grimodexStyle: String?
+    var grimodexPreference: String?
 
     init(path: String, useZenzai: Bool) {
         self.execURL = URL(filePath: path)
@@ -50,6 +68,9 @@ final class ConverterSession {
                 personalizationMode: nil,
                 versionDependentMode: .v3(.init(
                     profile: config["profile"] as? String ?? "",
+                    topic: grimodexTopic,
+                    style: grimodexStyle,
+                    preference: grimodexPreference,
                     leftSideContext: context
                 ))
             ) : .off,
@@ -79,6 +100,30 @@ final class ConverterSession {
         } catch {
             print("Failed to read settings: \(error)")
         }
+    }
+
+    func applyGrimodexPayload(_ payload: String) {
+        guard let data = payload.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(GrimodexPayload.self, from: data) else {
+            converter.importDynamicUserDictionary([])
+            grimodexTopic = nil
+            grimodexStyle = nil
+            grimodexPreference = nil
+            return
+        }
+
+        converter.importDynamicUserDictionary(decoded.entries.map {
+            DicdataElement(
+                word: $0.word,
+                ruby: $0.ruby,
+                cid: $0.cid,
+                mid: $0.mid,
+                value: PValue($0.value)
+            )
+        })
+        grimodexTopic = decoded.topic
+        grimodexStyle = decoded.style
+        grimodexPreference = decoded.preference
     }
 }
 
@@ -119,6 +164,14 @@ func session(_ handle: UnsafeMutableRawPointer) -> ConverterSession {
 @_silgen_name("LoadConfig")
 @MainActor public func load_config(_ handle: UnsafeMutableRawPointer) {
     session(handle).loadConfig()
+}
+
+@_silgen_name("SetGrimodexPayload")
+@MainActor public func set_grimodex_payload(
+    _ handle: UnsafeMutableRawPointer,
+    payload: UnsafePointer<CChar>
+) {
+    session(handle).applyGrimodexPayload(String(cString: payload))
 }
 
 @_silgen_name("AppendText")

@@ -60,6 +60,9 @@ Filename: "icacls"; \
 Filename: "schtasks"; \
   Parameters: "/Delete /TN ""Grimodex IME Startup"" /F"; \
   Flags: runhidden runascurrentuser
+Filename: "{cmd}"; \
+  Parameters: "/C del /Q ""{userappdata}\com.miyakey.grimodex\ime\consumers\azookey-grimodex.json"""; \
+  Flags: runhidden runascurrentuser
 
 [Code]
 function InitializeSetup: Boolean;

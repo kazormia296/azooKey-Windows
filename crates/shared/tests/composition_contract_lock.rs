@@ -68,10 +68,12 @@ fn windows_baseline_pins_every_shared_scenario_and_gap() {
 
     let mut observed = BTreeMap::new();
     for (filename, expected_hash) in &lock.files {
-        let data = fs::read(root.join("scenarios").join(filename)).expect("read scenario");
-        let actual_hash = format!("{:x}", Sha256::digest(&data));
+        let data = fs::read_to_string(root.join("scenarios").join(filename))
+            .expect("read scenario")
+            .replace("\r\n", "\n");
+        let actual_hash = format!("{:x}", Sha256::digest(data.as_bytes()));
         assert_eq!(&actual_hash, expected_hash, "fixture drift: {filename}");
-        let scenario: Scenario = serde_json::from_slice(&data).expect("decode scenario");
+        let scenario: Scenario = serde_json::from_str(&data).expect("decode scenario");
         assert_eq!(scenario.contract_version, lock.contract_version);
         assert_eq!(filename, &format!("{}.json", scenario.scenario_id));
         assert!(

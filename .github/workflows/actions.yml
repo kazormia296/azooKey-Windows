@@ -124,11 +124,6 @@ jobs:
         # Copy llama.cpp import libraries to server-swift.
         Copy-Item "$llamaCpuDir\*.lib" -Destination "server-swift\" -Force
 
-        # Download the zenz model
-        $zenzUrl = "https://huggingface.co/Miwa-Keita/zenz-v3-small-gguf/resolve/main/ggml-model-Q5_K_M.gguf"
-        $zenzDest = "zenz.gguf"
-        Invoke-WebRequest -Uri $zenzUrl -OutFile $zenzDest
-
     - name: Install node dependencies
       run: |
         cd frontend

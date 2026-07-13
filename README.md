@@ -7,6 +7,8 @@
 
 # インストール方法
 `grimodex-ime-setup.exe`を実行すると、x64/x86 TSF DLL、Rustサーバー、Swift変換ブリッジをユーザー単位で登録します。
+インストーラーは共通の [GrimodexモデルRelease](https://github.com/kazormia296/grimodex-models/releases/tag/zenzai-v3-small-q5km-v1) から
+Zenzaiモデルを取得し、SHA-256を検証して設定領域へ保存します。モデル本体はアプリに同梱しません。
 
 # 機能
 
@@ -37,6 +39,10 @@ state/projectのJSONが上限・Schema・timestamp検証に失敗した場合は
 空にして既存の変換だけを継続します。作品の切替は変換区切りまで保留されます。
 
 ## Zenzai
+
+モデルは `%APPDATA%\com.miyakey.grimodex\ime\zenz.gguf` に保存されます。取得に失敗した場合や
+破損が疑われる場合は、Grimodex設定のZenzai画面から再ダウンロードできます。完了後は設定画面が
+状態を更新し、IMEサーバーへ設定を再読み込みします。
 
 ### 変換プロファイル
 設定で変換プロファイルを指定すると、プロファイルに応じた変換候補が表示されます。

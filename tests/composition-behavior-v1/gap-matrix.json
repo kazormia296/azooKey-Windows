@@ -1,0 +1,15 @@
+{
+  "contract_version": "composition-behavior-v1",
+  "platform": "windows-tsf",
+  "scenarios": {
+    "composing-basic": { "status": "partial", "gap": "client and server still split composition ownership", "target_slice": 3 },
+    "cursor-editing": { "status": "gap", "gap": "server semantic cursor and UTF-16 adapter are not implemented", "target_slice": 4 },
+    "escape-backspace": { "status": "partial", "gap": "legacy RemoveText path owns rollback", "target_slice": 3 },
+    "partial-commit": { "status": "gap", "gap": "snapshot effect and remaining-composition authority are absent", "target_slice": 3 },
+    "secure-input": { "status": "partial", "gap": "secure policy exists but is not pinned in a server composition epoch", "target_slice": 3 },
+    "segment-editing": { "status": "gap", "gap": "ShrinkText is procedural and client-owned", "target_slice": 3 },
+    "server-failure": { "status": "gap", "gap": "request idempotency and checkpoint replay are absent", "target_slice": 2 },
+    "stale-candidate": { "status": "gap", "gap": "candidate generation and revision are absent", "target_slice": 2 },
+    "unicode-caret": { "status": "gap", "gap": "semantic caret to TSF UTF-16 conversion is not centralized", "target_slice": 4 }
+  }
+}

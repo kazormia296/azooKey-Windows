@@ -58,7 +58,7 @@ final class ConverterSession {
             }
             return execURL.appendingPathComponent("zenz.gguf")
         }()
-        ConvertRequestOptions(
+        return ConvertRequestOptions(
             requireJapanesePrediction: .autoMix,
             requireEnglishPrediction: .disabled,
             keyboardLanguage: .ja_JP,

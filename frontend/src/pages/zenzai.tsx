@@ -1,6 +1,7 @@
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Bot, User, Cpu } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Bot, User, Cpu, Download, RefreshCw } from "lucide-react";
 import {
     Select,
     SelectContent,
@@ -57,6 +58,16 @@ export const Zenzai = () => {
         cuda: false,
         vulkan: false,
     });
+    const [modelReady, setModelReady] = useState<boolean | null>(null);
+    const [modelDownloading, setModelDownloading] = useState(false);
+
+    const refreshModelStatus = async () => {
+        try {
+            setModelReady(await invoke<boolean>("zenzai_model_status"));
+        } catch {
+            setModelReady(false);
+        }
+    };
 
     // Load config on component mount
     useEffect(() => {
@@ -80,7 +91,28 @@ export const Zenzai = () => {
                 vulkan: capability["vulkan"],
             });
         })
+        refreshModelStatus();
     }, []);
+
+    const downloadModel = async () => {
+        if (modelDownloading) {
+            return;
+        }
+        setModelDownloading(true);
+        try {
+            await invoke("download_zenzai_model");
+            await refreshModelStatus();
+            toast("Zenzaiモデルをダウンロードしました", {
+                description: "モデルを再読み込みし、すぐに利用できる状態にしました",
+            });
+        } catch (error) {
+            toast("Zenzaiモデルのダウンロードに失敗しました", {
+                description: String(error),
+            });
+        } finally {
+            setModelDownloading(false);
+        }
+    };
 
     const updateConfig = async (updater: (config: any) => void) => {
         try {
@@ -131,6 +163,27 @@ export const Zenzai = () => {
         <div className="space-y-8">
             <section className="space-y-2">
                 <h1 className="text-sm font-bold text-foreground">Zenzai</h1>
+                {modelReady !== true && (
+                    <div className="flex items-center gap-4 rounded-md border border-amber-300 bg-amber-100 p-4 text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+                        <Download />
+                        <div className="flex-1 space-y-1">
+                            <p className="text-sm font-medium leading-none">
+                                Zenzaiモデルが未インストールです
+                            </p>
+                            <p className="text-xs opacity-80">
+                                共通のモデル配布リリースから取得し、ダウンロード後にIMEへ再読み込みします
+                            </p>
+                        </div>
+                        <Button
+                            variant="outline"
+                            className="border-amber-400 bg-transparent text-amber-950 hover:bg-amber-200 dark:border-amber-600 dark:text-amber-100 dark:hover:bg-amber-900/60"
+                            disabled={modelDownloading}
+                            onClick={downloadModel}
+                        >
+                            {modelDownloading ? <RefreshCw className="animate-spin" /> : "ダウンロード"}
+                        </Button>
+                    </div>
+                )}
                 <div className="flex items-center space-x-4 rounded-md border p-4">
                     <Bot />
                     <div className="flex-1 space-y-1">

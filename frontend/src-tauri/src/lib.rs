@@ -2,7 +2,24 @@ mod ipc;
 
 use serde::{Deserialize, Serialize};
 use shared::AppConfig;
-use std::{path::PathBuf, sync::Mutex};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+    sync::Mutex,
+};
+
+const ZENZAI_MODEL_URL: &str = "https://github.com/kazormia296/grimodex-models/releases/download/zenzai-v3-small-q5km-v1/zenzai-v3-small-Q5_K_M.gguf";
+const ZENZAI_MODEL_SHA256: &str =
+    "501f605d088f5b988791a00ae19ed46985ed7c48144f364b2f3f1f951c9b2083";
+
+fn zenzai_model_path() -> Result<PathBuf, String> {
+    Ok(shared::get_config_root().join("zenz.gguf"))
+}
+
+fn has_zenzai_model(path: &Path) -> bool {
+    path.is_file()
+}
 
 #[derive(Debug)]
 pub struct AppState {
@@ -87,6 +104,65 @@ fn check_capability() -> Capability {
     capability
 }
 
+#[tauri::command]
+fn zenzai_model_status() -> Result<bool, String> {
+    Ok(has_zenzai_model(&zenzai_model_path()?))
+}
+
+#[tauri::command]
+fn download_zenzai_model(state: tauri::State<AppState>) -> Result<(), String> {
+    let output = zenzai_model_path()?;
+    let temporary = output.with_extension("gguf.download");
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Zenzaiモデルの保存先を作成できませんでした: {error}"))?;
+    }
+    let script = r#"
+$ErrorActionPreference = 'Stop'
+$output = $env:GRIMODEX_ZENZAI_OUTPUT
+$temporary = "$output.download"
+try {
+    Invoke-WebRequest -Uri $env:GRIMODEX_ZENZAI_URL -OutFile $temporary -MaximumRedirection 5
+    $hash = (Get-FileHash -Algorithm SHA256 $temporary).Hash.ToLowerInvariant()
+    if ($hash -ne $env:GRIMODEX_ZENZAI_SHA256) {
+        throw "Zenzai model checksum verification failed"
+    }
+    Move-Item -Force $temporary $output
+} finally {
+    if (Test-Path $temporary) {
+        Remove-Item -Force $temporary
+    }
+}
+"#;
+
+    let status = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            script,
+        ])
+        .env("GRIMODEX_ZENZAI_OUTPUT", &output)
+        .env("GRIMODEX_ZENZAI_URL", ZENZAI_MODEL_URL)
+        .env("GRIMODEX_ZENZAI_SHA256", ZENZAI_MODEL_SHA256)
+        .status()
+        .map_err(|error| format!("Zenzaiモデルのダウンローダーを起動できませんでした: {error}"))?;
+    if !status.success() {
+        let _ = fs::remove_file(&temporary);
+        return Err("Zenzaiモデルのダウンロードまたは検証に失敗しました".to_string());
+    }
+
+    state
+        .ipc
+        .clone()
+        .update_config()
+        .map_err(|error| format!("Zenzaiモデルの反映に失敗しました: {error}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState::new();
@@ -98,7 +174,9 @@ pub fn run() {
             greet,
             get_config,
             update_config,
-            check_capability
+            check_capability,
+            zenzai_model_status,
+            download_zenzai_model
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -69,8 +69,6 @@ cp $env:APPDATA/../Local/Programs/Swift/Runtimes/*/usr/bin/* build
 cp -Recurse -Force server-swift/azooKey_emoji_dictionary_storage/EmojiDictionary build
 cp -Recurse -Force server-swift/azooKey_dictionary_storage/Dictionary build
 
-cp zenz.gguf build
-
 icacls build/azookey_windows.dll /grant "*S-1-15-2-1:(RX)"
 icacls build/x86/azookey_windows.dll /grant "*S-1-15-2-1:(RX)"
 """

@@ -11,6 +11,7 @@ type
     Checksum: String;
     ForceSuccess: Boolean;
     RestartAfter: Boolean;
+    InstallOnly: Boolean;
   end;
 
 var
@@ -39,10 +40,20 @@ begin
   Dependency.Checksum := Checksum;
   Dependency.ForceSuccess := ForceSuccess;
   Dependency.RestartAfter := RestartAfter;
+  Dependency.InstallOnly := False;
 
   DependencyCount := GetArrayLength(Dependency_List);
   SetArrayLength(Dependency_List, DependencyCount + 1);
   Dependency_List[DependencyCount] := Dependency;
+end;
+
+procedure Dependency_AddDownload(const Filename, Title, URL, Checksum: String);
+var
+  DependencyCount: Integer;
+begin
+  Dependency_Add(Filename, '', Title, URL, Checksum, True, False);
+  DependencyCount := GetArrayLength(Dependency_List);
+  Dependency_List[DependencyCount - 1].InstallOnly := True;
 end;
 
 <event('InitializeWizard')>
@@ -99,8 +110,9 @@ begin
         Dependency_DownloadPage.SetText(Dependency_List[DependencyIndex].Title, '');
         Dependency_DownloadPage.SetProgress(DependencyIndex + 1, DependencyCount + 1);
 
-        while True do begin
-          ResultCode := 0;
+        if not Dependency_List[DependencyIndex].InstallOnly then begin
+          while True do begin
+            ResultCode := 0;
 #ifdef Dependency_CustomExecute
           if {#Dependency_CustomExecute}(ExpandConstant('{tmp}{\}') + Dependency_List[DependencyIndex].Filename, Dependency_List[DependencyIndex].Parameters, ResultCode) then begin
 #else
@@ -134,6 +146,7 @@ begin
             IDIGNORE: begin
               break;
             end;
+          end;
           end;
         end;
 

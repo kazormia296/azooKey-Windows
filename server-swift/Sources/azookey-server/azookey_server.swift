@@ -49,6 +49,15 @@ final class ConverterSession {
     }
 
     func getOptions(context: String = "") -> ConvertRequestOptions {
+        let zenzaiWeightURL: URL = {
+            if let appData = ProcessInfo.processInfo.environment["APPDATA"] {
+                return URL(filePath: appData)
+                    .appendingPathComponent("com.miyakey.grimodex")
+                    .appendingPathComponent("ime")
+                    .appendingPathComponent("zenz.gguf")
+            }
+            return execURL.appendingPathComponent("zenz.gguf")
+        }()
         ConvertRequestOptions(
             requireJapanesePrediction: .autoMix,
             requireEnglishPrediction: .disabled,
@@ -62,7 +71,7 @@ final class ConverterSession {
             },
             specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
             zenzaiMode: useZenzai && (config["enable"] as? Bool) == true ? .on(
-                weight: execURL.appendingPathComponent("zenz.gguf"),
+                weight: zenzaiWeightURL,
                 inferenceLimit: 1,
                 requestRichCandidates: true,
                 personalizationMode: nil,

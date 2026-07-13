@@ -65,6 +65,11 @@ Filename: "{cmd}"; \
   Flags: runhidden runascurrentuser
 
 [Code]
+const
+  ZenzaiModelFilename = 'zenzai-v3-small-Q5_K_M.gguf';
+  ZenzaiModelURL = 'https://github.com/kazormia296/grimodex-models/releases/download/zenzai-v3-small-q5km-v1/zenzai-v3-small-Q5_K_M.gguf';
+  ZenzaiModelSHA256 = '501f605d088f5b988791a00ae19ed46985ed7c48144f364b2f3f1f951c9b2083';
+
 function InitializeSetup: Boolean;
 begin
   ExtractTemporaryFile('Grimodex_0.1.0_x64-setup.exe');
@@ -74,8 +79,40 @@ begin
     '/q',
     'Grimodex IME',
     '', '', True, False);
+  if (not FileExists(ExpandConstant('{userappdata}{\}com.miyakey.grimodex{\}ime{\}zenz.gguf'))) or
+     (CompareText(GetSHA256OfFile(ExpandConstant('{userappdata}{\}com.miyakey.grimodex{\}ime{\}zenz.gguf')), ZenzaiModelSHA256) <> 0) then begin
+    Dependency_AddDownload(ZenzaiModelFilename,
+      'Zenzaiモデル',
+      ZenzaiModelURL,
+      ZenzaiModelSHA256);
+  end;
 
   Result := True;
+end;
+
+procedure InstallZenzaiModel;
+var
+  SourcePath, TargetPath: String;
+begin
+  SourcePath := ExpandConstant('{tmp}{\}') + ZenzaiModelFilename;
+  TargetPath := ExpandConstant('{userappdata}{\}com.miyakey.grimodex{\}ime{\}zenz.gguf');
+
+  if FileExists(TargetPath) and
+     (CompareText(GetSHA256OfFile(TargetPath), ZenzaiModelSHA256) = 0) then begin
+    Log('Keeping existing Zenzai model: ' + TargetPath);
+    exit;
+  end;
+
+  if not FileExists(SourcePath) then begin
+    MsgBox('Zenzaiモデルを取得できませんでした。インターネット接続を確認して再度インストールしてください。', mbError, MB_OK);
+    Abort;
+  end;
+
+  ForceDirectories(ExtractFileDir(TargetPath));
+  if not FileCopy(SourcePath, TargetPath, False) then begin
+    MsgBox('Zenzaiモデルをインストールできませんでした: ' + TargetPath, mbError, MB_OK);
+    Abort;
+  end;
 end;
 
 function UninstallNeedRestart(): Boolean;
@@ -158,6 +195,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    InstallZenzaiModel();
     CreateVbsFile();
     UpdateTaskXml();
   end;
